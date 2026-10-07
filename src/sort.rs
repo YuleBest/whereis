@@ -167,11 +167,18 @@ mod tests {
     use super::*;
 
     fn hit(path: &str, size: u64, mtime: u32) -> Hit {
-        Hit { path: path.as_bytes().to_vec(), inode: 1, size, mtime }
+        Hit {
+            path: path.as_bytes().to_vec(),
+            inode: 1,
+            size,
+            mtime,
+        }
     }
 
     fn paths(hits: &[Hit]) -> Vec<String> {
-        hits.iter().map(|h| String::from_utf8_lossy(&h.path).into_owned()).collect()
+        hits.iter()
+            .map(|h| String::from_utf8_lossy(&h.path).into_owned())
+            .collect()
     }
 
     #[test]

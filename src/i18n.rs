@@ -29,7 +29,11 @@ impl Lang {
     pub fn parse(locale: &str) -> Option<Lang> {
         // Drop the encoding (`.UTF-8`) and any modifier (`@euro`), and treat `_`
         // and `-` alike so `zh_CN` and `zh-CN` both work.
-        let base = locale.split(['.', '@']).next().unwrap_or("").replace('_', "-");
+        let base = locale
+            .split(['.', '@'])
+            .next()
+            .unwrap_or("")
+            .replace('_', "-");
         let mut parts = base.split('-');
         let language = parts.next()?.to_ascii_lowercase();
         let rest: Vec<String> = parts.map(|p| p.to_ascii_lowercase()).collect();
@@ -42,7 +46,11 @@ impl Lang {
                 let traditional = rest
                     .iter()
                     .any(|p| matches!(p.as_str(), "hant" | "tw" | "hk" | "mo"));
-                Some(if traditional { Lang::ZhHant } else { Lang::ZhHans })
+                Some(if traditional {
+                    Lang::ZhHant
+                } else {
+                    Lang::ZhHans
+                })
             }
             _ => None,
         }
@@ -331,10 +339,12 @@ static EN: Text = Text {
 static ZH_HANS: Text = Text {
     usage_title: "wis - 在 Linux 上即时搜索文件名",
     usage_header: "用法:",
-    usage_blurb: "直接读取块设备上的 ext4 元数据来搜索根文件系统上的文件名，不经过内核遍历目录树。\n\
+    usage_blurb:
+        "直接读取块设备上的 ext4 元数据来搜索根文件系统上的文件名，不经过内核遍历目录树。\n\
                   读取块设备需要 root 权限。",
     args_header: "参数:",
-    arg_name: "    <名称>    要查找的文件名内容。默认是不区分大小写的子串，加 --regex 后视为正则表达式",
+    arg_name:
+        "    <名称>    要查找的文件名内容。默认是不区分大小写的子串，加 --regex 后视为正则表达式",
     options_header: "选项:",
     opt_regex: "    -r, --regex          把 <名称> 当作正则表达式，在文件名中搜索而非整名匹配。\n\
                \x20                        匹配默认仍不区分大小写，除非用 (?-i) 明确要求",
@@ -343,13 +353,15 @@ static ZH_HANS: Text = Text {
                \x20                        按 <键> 排序，方向可省略\n\
                \x20                        <键>：name、path、ext、size、mtime\n\
                \x20                        方向：asc（正序，默认）、desc（倒序）",
-    opt_device: "    -d, --device <路径>  扫描指定的块设备（或文件系统镜像），而非挂载在 / 的文件系统",
+    opt_device:
+        "    -d, --device <路径>  扫描指定的块设备（或文件系统镜像），而非挂载在 / 的文件系统",
     opt_threads: "    -j, --threads <N>    并发读取数（默认 16；扫描受设备延迟限制，而非 CPU）",
     opt_lang: "    --lang <语言>        强制指定输出语言：zh-Hans、zh-Hant、en\n\
                \x20                        （默认从 LC_ALL、LANGUAGE、LC_MESSAGES、LANG 推断）",
     opt_help: "    -h, --help           显示本帮助",
     opt_version: "    -V, --version        显示版本",
-    usage_footer: "size 和 mtime 排序时，每条命中需要额外读一次 inode，因为遍历本身只读取目录的 inode。",
+    usage_footer:
+        "size 和 mtime 排序时，每条命中需要额外读一次 inode，因为遍历本身只读取目录的 inode。",
 
     hint_root: "提示：读取块设备需要 root 权限，请用 `sudo wis ...`",
     summary: "{shown}，用时 {secs}s —— 扫描 {entries} 个条目、{dirs} 个目录，读取 {mib} MiB\
@@ -374,8 +386,10 @@ static ZH_HANS: Text = Text {
     err_bad_pattern: "正则表达式有误：{what}",
     err_not_a_device: "{path} 既不是块设备也不是普通文件",
 
-    unsupported_filetype: "文件系统缺少 `filetype` 特性，目录项布局不同（可用 `tune2fs -O filetype` 启用）",
-    unsupported_meta_bg: "文件系统使用了 `meta_bg`：块组描述符不是连续的单一表，本程序不处理这种布局",
+    unsupported_filetype:
+        "文件系统缺少 `filetype` 特性，目录项布局不同（可用 `tune2fs -O filetype` 启用）",
+    unsupported_meta_bg:
+        "文件系统使用了 `meta_bg`：块组描述符不是连续的单一表，本程序不处理这种布局",
     unsupported_inline_data: "文件系统使用了 `inline_data`：小目录存放在 inode 内部",
     unsupported_bigalloc: "文件系统使用了 `bigalloc`：extent 以簇而非块为单位",
     note_no_extent: "wis: 提示：文件系统没有 `extent` 特性，改用传统的块映射",
@@ -589,37 +603,73 @@ mod tests {
         let pairs: [(&str, &str, &str); 17] = [
             (EN.summary, ZH_HANS.summary, ZH_HANT.summary),
             (EN.matches_all, ZH_HANS.matches_all, ZH_HANT.matches_all),
-            (EN.matches_limited, ZH_HANS.matches_limited, ZH_HANT.matches_limited),
-            (EN.note_other_ext4, ZH_HANS.note_other_ext4, ZH_HANT.note_other_ext4),
-            (EN.err_unknown_option, ZH_HANS.err_unknown_option, ZH_HANT.err_unknown_option),
+            (
+                EN.matches_limited,
+                ZH_HANS.matches_limited,
+                ZH_HANT.matches_limited,
+            ),
+            (
+                EN.note_other_ext4,
+                ZH_HANS.note_other_ext4,
+                ZH_HANT.note_other_ext4,
+            ),
+            (
+                EN.err_unknown_option,
+                ZH_HANS.err_unknown_option,
+                ZH_HANT.err_unknown_option,
+            ),
             (
                 EN.err_option_needs_value,
                 ZH_HANS.err_option_needs_value,
                 ZH_HANT.err_option_needs_value,
             ),
-            (EN.err_not_a_number, ZH_HANS.err_not_a_number, ZH_HANT.err_not_a_number),
+            (
+                EN.err_not_a_number,
+                ZH_HANS.err_not_a_number,
+                ZH_HANT.err_not_a_number,
+            ),
             (
                 EN.err_unknown_sort_key,
                 ZH_HANS.err_unknown_sort_key,
                 ZH_HANT.err_unknown_sort_key,
             ),
-            (EN.err_unknown_lang, ZH_HANS.err_unknown_lang, ZH_HANT.err_unknown_lang),
+            (
+                EN.err_unknown_lang,
+                ZH_HANS.err_unknown_lang,
+                ZH_HANT.err_unknown_lang,
+            ),
             (EN.err_not_ext4, ZH_HANS.err_not_ext4, ZH_HANT.err_not_ext4),
-            (EN.err_unsupported, ZH_HANS.err_unsupported, ZH_HANT.err_unsupported),
+            (
+                EN.err_unsupported,
+                ZH_HANS.err_unsupported,
+                ZH_HANT.err_unsupported,
+            ),
             (EN.err_corrupt, ZH_HANS.err_corrupt, ZH_HANT.err_corrupt),
             (
                 EN.err_no_block_device,
                 ZH_HANS.err_no_block_device,
                 ZH_HANT.err_no_block_device,
             ),
-            (EN.err_bad_pattern, ZH_HANS.err_bad_pattern, ZH_HANT.err_bad_pattern),
-            (EN.err_not_a_device, ZH_HANS.err_not_a_device, ZH_HANT.err_not_a_device),
+            (
+                EN.err_bad_pattern,
+                ZH_HANS.err_bad_pattern,
+                ZH_HANT.err_bad_pattern,
+            ),
+            (
+                EN.err_not_a_device,
+                ZH_HANS.err_not_a_device,
+                ZH_HANT.err_not_a_device,
+            ),
             (
                 EN.corrupt_extent_depth,
                 ZH_HANS.corrupt_extent_depth,
                 ZH_HANT.corrupt_extent_depth,
             ),
-            (EN.io_read_bytes, ZH_HANS.io_read_bytes, ZH_HANT.io_read_bytes),
+            (
+                EN.io_read_bytes,
+                ZH_HANS.io_read_bytes,
+                ZH_HANT.io_read_bytes,
+            ),
         ];
 
         for (en, hans, hant) in pairs {
@@ -633,7 +683,14 @@ mod tests {
     fn usage_lists_every_option() {
         for lang in [Lang::En, Lang::ZhHans, Lang::ZhHant] {
             let text = usage(lang);
-            for option in ["--regex", "--limit", "--sort", "--device", "--threads", "--lang"] {
+            for option in [
+                "--regex",
+                "--limit",
+                "--sort",
+                "--device",
+                "--threads",
+                "--lang",
+            ] {
                 assert!(text.contains(option), "{lang:?} help omits {option}");
             }
         }

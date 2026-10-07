@@ -190,7 +190,10 @@ impl Scanner {
             .map_err(|e| Error::io(i18n::t!(io_stat, path = device.display()), e))?;
         let ft = meta.file_type();
         if !ft.is_block_device() && !ft.is_file() {
-            return Err(Error::unsupported(i18n::t!(err_not_a_device, path = device.display())));
+            return Err(Error::unsupported(i18n::t!(
+                err_not_a_device,
+                path = device.display()
+            )));
         }
 
         let file = File::open(device)
@@ -202,7 +205,10 @@ impl Scanner {
 
         let magic = le16(&sb, SB_MAGIC);
         if magic != MAGIC {
-            return Err(Error::NotExt4 { device: device.display().to_string(), magic });
+            return Err(Error::NotExt4 {
+                device: device.display().to_string(),
+                magic,
+            });
         }
 
         let geo = Self::parse_geometry(&file, &sb)?;
@@ -219,7 +225,10 @@ impl Scanner {
     fn parse_geometry(file: &File, sb: &[u8; SUPERBLOCK_LEN]) -> Result<Geometry> {
         let log_block_size = le32(sb, SB_LOG_BLOCK_SIZE);
         if log_block_size > 6 {
-            return Err(Error::corrupt(i18n::t!(corrupt_log_block_size, value = log_block_size)));
+            return Err(Error::corrupt(i18n::t!(
+                corrupt_log_block_size,
+                value = log_block_size
+            )));
         }
         let block_size = 1024u32 << log_block_size;
 
@@ -232,7 +241,10 @@ impl Scanner {
             }
         };
         if !(128..=block_size).contains(&inode_size) || !inode_size.is_power_of_two() {
-            return Err(Error::corrupt(i18n::t!(corrupt_inode_size, value = inode_size)));
+            return Err(Error::corrupt(i18n::t!(
+                corrupt_inode_size,
+                value = inode_size
+            )));
         }
 
         let inodes_count = le32(sb, SB_INODES_COUNT);
@@ -249,28 +261,20 @@ impl Scanner {
         let ro_compat = le32(sb, SB_FEATURE_RO_COMPAT);
 
         if incompat & INCOMPAT_FILETYPE == 0 {
-            return Err(Error::unsupported(
-                i18n::t!(unsupported_filetype),
-            ));
+            return Err(Error::unsupported(i18n::t!(unsupported_filetype)));
         }
         if incompat & INCOMPAT_META_BG != 0 {
             // With meta_bg the group descriptors are not one contiguous table
             // after the superblock, so reading them as one would silently yield
             // the wrong inode table locations -- and plausible-looking garbage
             // instead of an error. Refuse rather than guess.
-            return Err(Error::unsupported(
-                i18n::t!(unsupported_meta_bg),
-            ));
+            return Err(Error::unsupported(i18n::t!(unsupported_meta_bg)));
         }
         if incompat & INCOMPAT_INLINE_DATA != 0 {
-            return Err(Error::unsupported(
-                i18n::t!(unsupported_inline_data),
-            ));
+            return Err(Error::unsupported(i18n::t!(unsupported_inline_data)));
         }
         if ro_compat & RO_COMPAT_BIGALLOC != 0 {
-            return Err(Error::unsupported(
-                i18n::t!(unsupported_bigalloc),
-            ));
+            return Err(Error::unsupported(i18n::t!(unsupported_bigalloc)));
         }
         if incompat & INCOMPAT_EXTENTS == 0 {
             // Not fatal -- we fall back to legacy indirect block maps -- but worth
@@ -289,12 +293,15 @@ impl Scanner {
             32
         };
         if desc_size < 32 {
-            return Err(Error::corrupt(i18n::t!(corrupt_desc_size, value = desc_size)));
+            return Err(Error::corrupt(i18n::t!(
+                corrupt_desc_size,
+                value = desc_size
+            )));
         }
 
         let groups_by_inodes = (inodes_count as u64).div_ceil(inodes_per_group as u64);
-        let groups_by_blocks = (blocks_count as u64 - first_data_block as u64)
-            .div_ceil(blocks_per_group as u64);
+        let groups_by_blocks =
+            (blocks_count as u64 - first_data_block as u64).div_ceil(blocks_per_group as u64);
         let group_count = groups_by_inodes.max(groups_by_blocks) as u32;
         if group_count == 0 {
             return Err(Error::corrupt(i18n::t!(corrupt_zero_groups)));
@@ -312,11 +319,21 @@ impl Scanner {
         for g in 0..group_count as usize {
             let d = &gdt[g * desc_size as usize..];
             let lo = le32(d, GD_INODE_TABLE_LO) as u64;
-            let hi = if desc_size >= 64 { le32(d, GD_INODE_TABLE_HI) as u64 } else { 0 };
+            let hi = if desc_size >= 64 {
+                le32(d, GD_INODE_TABLE_HI) as u64
+            } else {
+                0
+            };
             inode_table.push(lo | (hi << 32));
         }
 
-        Ok(Geometry { block_size, inode_size, inodes_per_group, inodes_count, inode_table })
+        Ok(Geometry {
+            block_size,
+            inode_size,
+            inodes_per_group,
+            inodes_count,
+            inode_table,
+        })
     }
 
     /// Walk the tree from the root directory, calling `matches` on every file
@@ -360,7 +377,8 @@ impl Scanner {
             offsets.clear();
             offsets.extend(batch.iter().map(|(ino, _)| self.inode_offset(*ino)));
             self.read_many(&offsets, inode_size, &mut inode_arena[..inode_need])?;
-            self.inode_reads.fetch_add(batch.len() as u64, Ordering::Relaxed);
+            self.inode_reads
+                .fetch_add(batch.len() as u64, Ordering::Relaxed);
 
             // -- step 2: work out which data blocks each directory needs -----
             work.clear();
@@ -372,8 +390,8 @@ impl Scanner {
                 }
                 stats.dirs += 1;
 
-                let size = le32(inode, INO_SIZE_LO) as u64
-                    | (le32(inode, INO_SIZE_HIGH) as u64) << 32;
+                let size =
+                    le32(inode, INO_SIZE_LO) as u64 | (le32(inode, INO_SIZE_HIGH) as u64) << 32;
                 if size == 0 {
                     continue;
                 }
@@ -384,7 +402,12 @@ impl Scanner {
                 if slots == 0 {
                     continue;
                 }
-                work.push(DirWork { batch_index: i, first_slot, slots, size });
+                work.push(DirWork {
+                    batch_index: i,
+                    first_slot,
+                    slots,
+                    size,
+                });
             }
 
             // Resolving extent trees above depth 0 reads index blocks; those are
@@ -427,7 +450,13 @@ impl Scanner {
                         stats: &mut stats,
                         child_inode: &mut child_inode,
                     };
-                    self.parse_directory(&batch[w.batch_index].1, w.size, data, &matches, &mut out)?;
+                    self.parse_directory(
+                        &batch[w.batch_index].1,
+                        w.size,
+                        data,
+                        &matches,
+                        &mut out,
+                    )?;
                 }
                 cursor = end;
             }
@@ -571,10 +600,10 @@ impl Scanner {
     }
 
     fn read_into(&self, offset: u64, buf: &mut [u8]) -> Result<()> {
-        read_exact_at(&self.file, buf, offset).map_err(|e| {
-            Error::io(i18n::t!(io_read_bytes, len = buf.len(), offset = offset), e)
-        })?;
-        self.bytes_read.fetch_add(buf.len() as u64, Ordering::Relaxed);
+        read_exact_at(&self.file, buf, offset)
+            .map_err(|e| Error::io(i18n::t!(io_read_bytes, len = buf.len(), offset = offset), e))?;
+        self.bytes_read
+            .fetch_add(buf.len() as u64, Ordering::Relaxed);
         Ok(())
     }
 
@@ -588,7 +617,8 @@ impl Scanner {
         read_exact_at(&self.file, buf, off)
             .map_err(|e| Error::io(i18n::t!(io_read_inode, inode = ino), e))?;
         self.inode_reads.fetch_add(1, Ordering::Relaxed);
-        self.bytes_read.fetch_add(buf.len() as u64, Ordering::Relaxed);
+        self.bytes_read
+            .fetch_add(buf.len() as u64, Ordering::Relaxed);
         Ok(())
     }
 
@@ -615,7 +645,8 @@ impl Scanner {
 
         let mut arena = vec![0u8; offsets.len() * inode_size];
         self.read_many(&offsets, inode_size, &mut arena)?;
-        self.inode_reads.fetch_add(offsets.len() as u64, Ordering::Relaxed);
+        self.inode_reads
+            .fetch_add(offsets.len() as u64, Ordering::Relaxed);
 
         for (k, &i) in targets.iter().enumerate() {
             let inode = &arena[k * inode_size..(k + 1) * inode_size];
@@ -669,7 +700,11 @@ impl Scanner {
     /// `node` is a block (or the inode's inline area) holding an extent header.
     fn walk_extent_node(&self, node: &[u8], depth: usize, out: &mut Vec<u64>) -> Result<()> {
         if depth > MAX_EXTENT_DEPTH {
-            return Err(Error::corrupt(i18n::t!(corrupt_extent_depth, depth = depth, max = MAX_EXTENT_DEPTH)));
+            return Err(Error::corrupt(i18n::t!(
+                corrupt_extent_depth,
+                depth = depth,
+                max = MAX_EXTENT_DEPTH
+            )));
         }
         if node.len() < 12 {
             return Err(Error::corrupt(i18n::t!(corrupt_truncated_extent)));

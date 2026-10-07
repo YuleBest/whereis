@@ -5,6 +5,7 @@ edition = "2021"
 rust-version = "1.75"
 description = "Instant filename search on Linux by reading filesystem metadata directly from the block device"
 license = "MIT"
+repository = "https://github.com/YuleBest/whereis"
 
 [[bin]]
 name = "wis"
@@ -21,3 +22,4 @@ regex = "1.13.1"
 opt-level = 3
 lto = true
 codegen-units = 1
+strip = true

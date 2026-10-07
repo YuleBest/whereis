@@ -58,7 +58,11 @@ fn contains_ignore_ascii_case(haystack: &[u8], needle: &[u8]) -> bool {
 /// `regex::Error` prints a multi-line diagram; squash it onto one line so it fits
 /// in a normal error message.
 fn tidy(error: &regex::Error) -> String {
-    error.to_string().split_whitespace().collect::<Vec<_>>().join(" ")
+    error
+        .to_string()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[cfg(test)]

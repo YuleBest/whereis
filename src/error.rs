@@ -29,7 +29,10 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 impl Error {
     pub fn io(context: impl Into<String>, source: io::Error) -> Self {
-        Error::Io { context: context.into(), source }
+        Error::Io {
+            context: context.into(),
+            source,
+        }
     }
 
     pub fn unsupported(what: impl Into<String>) -> Self {
@@ -74,19 +77,13 @@ impl fmt::Display for Error {
                 device = device,
                 magic = format!("{magic:04x}")
             )),
-            Error::Unsupported(what) => {
-                f.write_str(&i18n::t!(err_unsupported, what = what))
-            }
+            Error::Unsupported(what) => f.write_str(&i18n::t!(err_unsupported, what = what)),
             Error::Corrupt(what) => f.write_str(&i18n::t!(err_corrupt, what = what)),
-            Error::NoBlockDevice { path, fstype } => f.write_str(&i18n::t!(
-                err_no_block_device,
-                path = path,
-                fstype = fstype
-            )),
-            Error::Usage(what) => f.write_str(what),
-            Error::BadPattern(what) => {
-                f.write_str(&i18n::t!(err_bad_pattern, what = what))
+            Error::NoBlockDevice { path, fstype } => {
+                f.write_str(&i18n::t!(err_no_block_device, path = path, fstype = fstype))
             }
+            Error::Usage(what) => f.write_str(what),
+            Error::BadPattern(what) => f.write_str(&i18n::t!(err_bad_pattern, what = what)),
         }
     }
 }

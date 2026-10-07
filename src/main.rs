@@ -103,10 +103,13 @@ fn run(argv: &[String]) -> Result<()> {
     let stdout = io::stdout();
     let mut out = io::BufWriter::new(stdout.lock());
     for hit in &hits {
-        out.write_all(&hit.path).map_err(|e| Error::io(i18n::t!(io_write_stdout), e))?;
-        out.write_all(b"\n").map_err(|e| Error::io(i18n::t!(io_write_stdout), e))?;
+        out.write_all(&hit.path)
+            .map_err(|e| Error::io(i18n::t!(io_write_stdout), e))?;
+        out.write_all(b"\n")
+            .map_err(|e| Error::io(i18n::t!(io_write_stdout), e))?;
     }
-    out.flush().map_err(|e| Error::io(i18n::t!(io_flush_stdout), e))?;
+    out.flush()
+        .map_err(|e| Error::io(i18n::t!(io_flush_stdout), e))?;
 
     let shown = if hits.len() == matched {
         i18n::t!(matches_all, n = matched)
@@ -159,15 +162,17 @@ fn parse_args(argv: &[String]) -> Result<Args> {
             }
             "-n" | "--limit" => {
                 let value = value_of(argv, &mut i, "--limit")?;
-                limit = Some(value.parse().map_err(|_| {
-                    Error::usage(i18n::t!(err_not_a_number, value = value))
-                })?);
+                limit = Some(
+                    value
+                        .parse()
+                        .map_err(|_| Error::usage(i18n::t!(err_not_a_number, value = value)))?,
+                );
             }
             "-j" | "--threads" => {
                 let value = value_of(argv, &mut i, "--threads")?;
-                let count: usize = value.parse().map_err(|_| {
-                    Error::usage(i18n::t!(err_not_a_number, value = value))
-                })?;
+                let count: usize = value
+                    .parse()
+                    .map_err(|_| Error::usage(i18n::t!(err_not_a_number, value = value)))?;
                 if count == 0 {
                     return Err(Error::usage(i18n::t!(err_threads_min)));
                 }
@@ -212,7 +217,15 @@ fn parse_args(argv: &[String]) -> Result<Args> {
     }
 
     let name = name.ok_or_else(|| Error::usage(i18n::t!(err_missing_name)))?;
-    Ok(Args { name, device, threads, regex, limit, sort_key, sort_dir })
+    Ok(Args {
+        name,
+        device,
+        threads,
+        regex,
+        limit,
+        sort_key,
+        sort_dir,
+    })
 }
 
 fn value_of(argv: &[String], i: &mut usize, option: &str) -> Result<String> {
@@ -243,7 +256,9 @@ fn resolve_root_device() -> Result<PathBuf> {
     // Other ext4 filesystems are out of scope for now, but silently searching
     // only part of the machine would be worse than saying so.
     for other in &mounts {
-        if other.fstype == "ext4" && other.target != entry.target && other.source.starts_with("/dev/")
+        if other.fstype == "ext4"
+            && other.target != entry.target
+            && other.source.starts_with("/dev/")
         {
             eprintln!(
                 "{}",
