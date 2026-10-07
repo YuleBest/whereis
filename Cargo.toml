@@ -1,0 +1,19 @@
+[package]
+name = "whereis"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+description = "Instant filename search on Linux by reading filesystem metadata directly from the block device"
+license = "MIT"
+
+[[bin]]
+name = "whereis"
+path = "src/main.rs"
+
+# No dependencies: the whole point is to talk to the disk ourselves.
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
