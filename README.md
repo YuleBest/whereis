@@ -1,37 +1,34 @@
 # whereis
 
-Instant filename search on Linux, in the spirit of Windows' *Everything*.
+在 Linux 上即时搜索文件名，思路来自 Windows 的 *Everything*。
 
-The package is called `whereis`; the command it installs is **`wis`**. See
-[Why `wis`?](#why-wis).
+**简体中文** · [English](README_en.md)
 
-`whereis` does not walk the directory tree through the kernel. It opens the
-block device read-only and decodes the ext4 filesystem's own metadata
-(superblock → group descriptors → inode tables → extent trees → directory
-blocks), so a full index of a 500,000-entry filesystem takes about a tenth of a
-second instead of a second.
+包名是 `whereis`，但它安装的命令叫 **`wis`**，原因见[为什么叫 `wis`](#为什么叫-wis)。
 
-## Status
+`whereis` 不通过内核遍历目录树。它只读方式打开块设备，直接解码 ext4 文件系统自身的元数据
+（超级块 → 块组描述符 → inode 表 → extent 树 → 目录块），所以为 50 万条目的文件系统建立完整
+索引只要约十分之一秒，而不是一秒。
 
-Early. One filesystem type, no index cache. See [Roadmap](#roadmap) for what is
-deliberately not here yet.
+## 状态
 
-## Requirements
+早期阶段。只支持一种文件系统，没有索引缓存。故意没做的部分见[路线图](#路线图)。
+
+## 环境要求
 
 * Linux
-* **ext4** on a block device
-* **root** — reading a block device needs it
-* Rust 1.75+ to build
+* 块设备上的 **ext4**
+* **root** —— 读取块设备需要
+* 构建需要 Rust 1.75+
 
-## Usage
+## 用法
 
 ```
-wis [OPTIONS] <NAME>
+wis [选项] <名称>
 ```
 
-`<NAME>` is matched against file *names* — never full paths — and always on raw
-bytes, so non-UTF-8 names work. By default it is a case-insensitive substring;
-with `--regex` it is a regular expression.
+`<名称>` 匹配的是**文件名**（从不匹配完整路径），并且始终按原始字节匹配，所以非 UTF-8 文件名
+也能正常工作。默认是不区分大小写的子串匹配，加 `--regex` 后视为正则表达式。
 
 ```console
 $ sudo wis sshd_config
@@ -44,190 +41,182 @@ $ sudo wis sshd_config
 wis: 6 match(es) in 0.128s -- 501106 entries in 36151 dirs, 170.5 MiB read
 ```
 
-Results go to stdout, one path per line. The summary goes to stderr, so piping
-stdout is clean.
+结果输出到 stdout，每行一个路径；统计信息输出到 stderr，所以管道接 stdout 是干净的。
 
-| Option | Meaning |
+| 选项 | 含义 |
 |---|---|
-| `-r`, `--regex` | Treat `<NAME>` as a regular expression |
-| `-n`, `--limit <N>` | Print at most N results, applied after sorting |
-| `-s`, `--sort <KEY> [DIR]` | Sort by KEY in direction DIR (`asc`, the default, or `desc`) |
-| `-d`, `--device <PATH>` | Scan this block device or filesystem image instead of the filesystem mounted at `/` |
-| `-j`, `--threads <N>` | Concurrent metadata reads to keep in flight (default 16) |
-| `-h`, `--help` | Print help |
-| `-V`, `--version` | Print version |
+| `-r`, `--regex` | 把 `<名称>` 当作正则表达式 |
+| `-n`, `--limit <N>` | 最多输出 N 条结果，在排序之后应用 |
+| `-s`, `--sort <键> [方向]` | 按 `<键>` 排序，方向为 `asc`（默认）或 `desc` |
+| `-d`, `--device <路径>` | 扫描指定的块设备或文件系统镜像，而非挂载在 `/` 的文件系统 |
+| `-j`, `--threads <N>` | 并发读取数（默认 16） |
+| `--lang <语言>` | 强制输出语言：`zh-Hans`、`zh-Hant`、`en` |
+| `-h`, `--help` | 显示帮助 |
+| `-V`, `--version` | 显示版本 |
 
-An empty `<NAME>` lists every entry.
+`<名称>` 为空会列出所有条目。
 
-### Regular expressions
+### 正则表达式
 
-`-r` switches the pattern from a substring to a regular expression, using the
-[Rust `regex` syntax](https://docs.rs/regex/latest/regex/#syntax). The pattern is
-*searched* within the name rather than anchored to it, so `-r '\.so\.[0-9]+$'`
-finds `libssl.so.3`. Anchor with `^` and `$` yourself.
+`-r` 把模式从子串切换为正则表达式，语法见
+[Rust `regex` 语法](https://docs.rs/regex/latest/regex/#syntax)。模式是在文件名中**搜索**而非
+整名匹配，所以 `-r '\.so\.[0-9]+$'` 能找到 `libssl.so.3`；需要整名匹配请自己加 `^` 和 `$`。
 
-`-r` changes the pattern language and nothing else, so matching stays
-case-insensitive the way substring mode is. A pattern can opt back out with
-`(?-i)`, or scope it to part of the pattern with `(?-i:...)`.
+`-r` 只改变模式语言，不影响其他语义，所以匹配仍然和子串模式一样不区分大小写。模式里可以用
+`(?-i)` 关掉这一行为，或用 `(?-i:...)` 只对模式的一部分生效。
 
-Because matching runs against raw bytes, a regex works on names that are not
-valid UTF-8.
+由于匹配基于原始字节，正则对非 UTF-8 文件名同样有效。
 
-### Sorting
+### 排序
 
-| KEY | Sorts by |
+| 键 | 排序依据 |
 |---|---|
-| `path` | The full path (default) |
-| `name` | The file name, ignoring directories |
-| `ext` | The file extension; entries with no extension sort first |
-| `size` | File size in bytes |
-| `mtime` | Modification time |
+| `path` | 完整路径（默认） |
+| `name` | 文件名，忽略所在目录 |
+| `ext` | 文件扩展名；没有扩展名的排在最前 |
+| `size` | 文件大小（字节） |
+| `mtime` | 修改时间 |
 
-`DIR` is `asc` (the default) or `desc`. Ties are always broken by ascending path,
-so the output is deterministic.
+方向为 `asc`（默认）或 `desc`。并列时一律按路径升序，所以输出是确定的。
 
-The direction is optional and is only consumed when it really is a direction, so
-both of these work:
+方向可以省略，而且只有它确实是方向时才会被当作方向，所以下面两种写法都成立：
 
 ```console
-$ sudo wis -s size libssl        # ascending; "libssl" is the search term
+$ sudo wis -s size libssl        # 升序；"libssl" 是搜索词
 $ sudo wis -s size desc libssl
 ```
 
-`size` and `mtime` are not free. The walk only reads *directory* inodes, so a
-match's own metadata is unknown until it is asked for, and those keys cost one
-extra inode read per match (done in parallel). Listing all 500,000 entries on this
-filesystem takes 0.38 s sorted by path and 0.74 s sorted by size.
+`size` 和 `mtime` 不是免费的。遍历本身只读**目录**的 inode，命中项自己的元数据事先并不知道，
+所以这两个键每条命中要多读一次 inode（并行进行）。在本机上列出全部 50 万条目，按 path 排序
+耗时 0.38 s，按 size 排序 0.74 s。
 
-### Limiting
+### 限制条数
 
-`-n` applies after sorting, so it gives the top N by the chosen key:
+`-n` 在排序之后应用，因此得到的是按所选键排出的前 N 条：
 
 ```console
 $ sudo wis -s size desc -n 10 '\.log$'
 ```
 
-## How it works
+### 多语言
 
-1. Read the ext4 superblock at byte offset 1024 for the filesystem geometry.
-2. Read the group descriptor table (the block after the superblock's) to locate
-   every block group's inode table.
-3. Walk from the root inode (2). For each directory, decode its data blocks
-   (extent tree, or the legacy indirect block map) and parse the
-   `ext4_dir_entry_2` records inside them.
+输出支持简体中文、繁体中文和英文，按常见顺序从环境变量推断：`LC_ALL`，然后是 GNU 的
+`LANGUAGE` 列表，然后是 `LC_MESSAGES`，最后是 `LANG`。`zh_CN.UTF-8`、`zh-Hans`、`zh_TW`、
+`zh-Hant-TW` 这类写法都能识别。其他语言（包括 `C` 和 `POSIX`）一律回退到英文。
 
-Because modern ext4 carries the `filetype` feature, each directory entry records
-the type of the inode it points at, so only **directory** inodes ever need to be
-read. That is what keeps the I/O down to the directory blocks — 170 MiB for a
-500,000-entry filesystem.
+```console
+$ LANG=zh_CN.UTF-8 wis -s bogus foo
+wis: 未知的排序键 `bogus`（可选：name, path, ext, size, mtime）
+```
 
-The walk runs in batches rather than one directory at a time, because those reads
-are scattered and would otherwise serialise on latency. A batch of directories has
-all of its inodes read in parallel, then all of its data blocks read in parallel;
-parsing them afterwards is pure CPU work and stays single-threaded. A directory's
-data blocks cannot be known before its inode has been read, so those two steps
-cannot be merged — but within each step the reads are independent.
+`--lang` 可以无视环境变量强制指定语言：
 
-### Two things that are easy to get wrong
+```console
+$ wis --lang zh-Hant --help
+$ wis --lang en '\.log$'
+```
 
-**Directory entry names are not NUL-terminated.** They must be sliced using the
-on-disk `name_len`. Reaching for a string-length function reads straight through
-into the next directory entry; the symptom is a path that looks almost right but
-has a few stray bytes glued onto the end, inherited by every child path.
+帮助文本、stderr 上的统计信息、以及所有错误信息都已翻译。有两处没有：一是文件路径（显然），
+二是来自其他 crate 的错误细节——正则写错时，前缀是翻译过的，后面仍会附上 `regex` crate
+自己的英文说明。
 
-**Reads must stay buffered — never `O_DIRECT`.** A buffered read of `/dev/sdaX`
-lands in the same page cache pages the mounted ext4 uses for its metadata, so the
-scan sees live in-memory state. `O_DIRECT` bypasses that and returns
-not-yet-checkpointed on-disk state: a file created a moment ago disappears.
-This is why the tool needs no `sync` beforehand and never shows a stale index.
+## 实现原理
 
-More on the feasibility work, including measurements, is in
-[`probe/FINDINGS.md`](probe/FINDINGS.md).
+1. 读取字节偏移 1024 处的 ext4 超级块，取得文件系统几何信息。
+2. 读取块组描述符表（位于超级块所在块的下一个块），定位每个块组的 inode 表。
+3. 从根 inode（2）开始遍历。对每个目录，解码其数据块（extent 树，或退化的间接块映射），
+   并解析其中的 `ext4_dir_entry_2` 记录。
 
-## Performance
+由于现代 ext4 都带有 `filetype` 特性，每个目录项都记录了它所指向 inode 的类型，因此只有
+**目录**的 inode 需要读取。这正是 I/O 量能压到目录块大小的原因——50 万条目的文件系统只需
+170 MiB。
 
-Root filesystem: 112 GiB ext4, ~500,000 entries, cheap SATA SSD (479 MB/s
-sequential, ~87 µs random-read latency).
+遍历是按批进行的，而不是一次一个目录，因为这些读取是分散的，逐个进行会串行等待延迟。一批目录
+会先并行读取全部 inode，再并行读取全部数据块；之后的解析是纯 CPU 工作，保持单线程。一个目录的
+数据块位置必须先读到它的 inode 才能知道，所以这两步无法合并——但在每一步内部，读取之间是相互
+独立的。
 
-Time to produce results, best of several runs. These are for a search matching a
-handful of entries, so they are essentially the scan time; sorting a full
-500,000-entry listing costs roughly another 0.24 s.
+### 两个很容易踩的坑
 
-| threads | warm cache | cold cache |
+**目录项的名字不是 NUL 结尾的。** 必须用盘上的 `name_len` 精确切分。若图省事用了求字符串长度的
+函数，会一路读进下一个目录项；症状是路径看起来几乎正确，但末尾粘了几个乱码字节，并且会被所有
+子路径继承。
+
+**读取必须保持缓冲，绝不能用 `O_DIRECT`。** 缓冲读取 `/dev/sdaX` 会落在已挂载 ext4 用于其元数据
+的同一批 page cache 页面上，因此扫描看到的是实时的内存状态。`O_DIRECT` 绕过这一点，返回尚未
+checkpoint 的盘上状态：刚创建的文件会凭空消失。这就是本工具不需要事先 `sync`、也永远不会显示
+陈旧索引的原因。
+
+可行性验证的更多内容（含实测数据）见 [`probe/FINDINGS.md`](probe/FINDINGS.md)。
+
+## 性能
+
+根文件系统：112 GiB ext4，约 50 万条目，廉价 SATA SSD（顺序读 479 MB/s，随机读延迟约 87 µs）。
+
+下表是产生结果所需的时间，取多次运行中的最好成绩。这些数字来自只有少量命中的搜索，所以基本
+就是扫描时间；对全部 50 万条目排序大约还要多花 0.24 s。
+
+| 线程数 | 热缓存 | 冷缓存 |
 |---|---|---|
 | 1 | 0.142 s | 3.83 s |
 | 4 | 0.109 s | 1.58 s |
-| **16** (default) | 0.140 s | 1.04 s |
+| **16**（默认） | 0.140 s | 1.04 s |
 | 32 | 0.172 s | 0.99 s |
 
-Whole command, including process start, sorting and writing the output:
+整条命令的墙钟时间（含进程启动、排序和输出）：
 
-| | warm cache | cold cache |
+| | 热缓存 | 冷缓存 |
 |---|---|---|
-| `wis ""` (full enumeration) | 0.39 s | 1.34 s |
+| `wis ""`（全量枚举） | 0.39 s | 1.34 s |
 | `find / -xdev` | 1.16 s | 9.59 s |
 
-The metadata reads are scattered, so on a cold page cache the walk is bound by
-per-read latency rather than by bandwidth: ~70,000 reads serialise into ~4
-seconds, while the device can move the same 170 MiB in under a second given
-enough requests in flight. That is what the batching and the thread pool buy.
+元数据读取是分散的，所以在冷 page cache 下，遍历受限于单次读取的延迟而非带宽：约 7 万次读取
+串行起来要 4 秒左右，而只要同时有足够多的请求在飞，设备搬完同样这 170 MiB 用不到一秒。批处理和
+线程池换来的就是这个。
 
-Past 16 threads the cold curve flattens (the device queue saturates) and the warm
-curve turns upward (waking 32 threads costs more than the reads it parallelises).
-Warm cache at 4 threads is in fact marginally faster than at 16, but 16 is the
-better default: it is half a second faster cold, and the warm difference is 30 ms,
-below the threshold where anyone notices.
+超过 16 线程后，冷缓存曲线变平（设备队列饱和），热缓存曲线则开始上升（唤醒 32 个线程的开销超过
+了它并行化掉的读取）。热缓存下 4 线程其实比 16 线程略快，但 16 是更好的默认值：冷缓存快半秒，
+而热缓存的差异只有 30 ms，低到没人会察觉。
 
-Even cold, a full scan is now cheap enough that a periodic rescan beats
-maintaining an incremental index.
+即使冷缓存，现在一次完整扫描也足够便宜，定期重扫比维护增量索引更划算。
 
-## Known limitations
+## 已知限制
 
-* **Unsupported features are refused, not guessed at.** `meta_bg`, `inline_data`
-  and `bigalloc` change the on-disk layout in ways this reader does not decode,
-  and the `filetype` feature is required. On such a filesystem it exits with a
-  clear message rather than returning plausible-looking wrong paths.
-* **Only ext4 on a block device.** tmpfs, overlayfs, btrfs, XFS, NFS and FUSE
-  mounts have no block device to read, or a completely different on-disk format.
-  Run against a non-ext4 root, the tool says so and exits.
-* **Only the root filesystem** is searched. Other ext4 mounts are reported on
-  stderr but skipped.
-* **Mount points are transparent to the scan.** The scan reads the underlying
-  filesystem, so content hidden beneath a mount point is visible to it. On this
-  machine the ext4 root's `/run` really does contain initramfs leftovers
-  (`blkid/`, `mount/`) that the VFS hides behind the tmpfs. This is usually a
-  feature for a search tool, but it is a deliberate difference from `find`.
-* **No index cache.** Every invocation rescans from scratch. At 0.1 s warm this
-  is fine; it will need revisiting on much larger filesystems.
-* **Patterns apply to the file name, not the full path**, and there is no glob
-  matching — only substrings and regular expressions.
-* **Encrypted directories would yield ciphertext names.** The `encrypt` feature
-  is not checked, so in a directory with the encryption flag the names decoded
-  from disk are encrypted. The tree structure stays correct; only the names are
-  unreadable. Not detected or reported yet.
+* **不支持的特性会明确拒绝，而不是靠猜。** `meta_bg`、`inline_data`、`bigalloc` 会以本程序不解码
+  的方式改变盘上布局，`filetype` 特性则是必需项。遇到这类文件系统，程序会给出明确信息后退出，
+  而不是返回看起来合理的错误路径。
+* **只支持块设备上的 ext4。** tmpfs、overlayfs、btrfs、XFS、NFS 和 FUSE 挂载要么没有块设备可读，
+  要么盘上格式完全不同。对非 ext4 的根文件系统运行，程序会说明并退出。
+* **只搜索根文件系统。** 其他 ext4 挂载会在 stderr 上提示，但会被跳过。
+* **挂载点对扫描是透明的。** 扫描读的是底层文件系统，所以被挂载点遮蔽的内容它看得见。本机上
+  ext4 根目录的 `/run` 确实存有 initramfs 遗留的 `blkid/`、`mount/`，而 VFS 把它们藏在 tmpfs
+  后面。对搜索工具来说这通常是优点，但这是与 `find` 的一个有意区别。
+* **没有索引缓存。** 每次调用都从头扫描。热缓存 0.1 s 尚可接受；在更大的文件系统上需要重新考虑。
+* **模式只作用于文件名，不作用于完整路径**，并且不支持 glob——只有子串和正则。
+* **加密目录会得到密文文件名。** 程序没有检查 `encrypt` 特性，所以带加密标志的目录里，从盘上
+  解码出来的名字是密文。目录树结构仍然正确，只是名字不可读。目前尚未检测和提示。
 
-## Dependencies
+## 依赖
 
-The disk side is deliberately dependency-free: talking to the block device
-ourselves is the whole point. The one exception is
-[`regex`](https://docs.rs/regex), because hand-rolling a regex engine would be a
-project in itself, and it is pure Rust with a `bytes` API that handles non-UTF-8
-names. It pulls in four transitive crates (`regex-automata`, `regex-syntax`,
-`aho-corasick`, `memchr`).
+磁盘这一侧刻意不引入依赖：自己跟块设备对话正是这个项目的意义所在。有两处是手写而非引库的：
+语言环境检测（规则只有十几行，见 `src/i18n.rs`），以及 `probe/` 里的 C 原型。
 
-## Why `wis`?
+真正唯一的依赖是 [`regex`](https://docs.rs/regex)：手写正则引擎本身就是个大工程，而它是纯 Rust，
+且 `bytes` API 能处理非 UTF-8 文件名。它会连带引入四个传递依赖（`regex-automata`、
+`regex-syntax`、`aho-corasick`、`memchr`）。
 
-`/usr/bin/whereis` is already taken: it is util-linux's binary-location tool,
-which does something entirely different. Installing this project under that name
-would silently shadow it, which is a bad trade for everyone. So the package keeps
-the name `whereis` and the command it installs is `wis`.
+## 为什么叫 `wis`
 
-Same arrangement as ripgrep, whose package is `ripgrep` and whose command is `rg`.
+`/usr/bin/whereis` 这个名字已经被占了：它是 util-linux 的二进制定位工具，做的事情完全不同。
+把本项目以这个名字安装会静默遮蔽它，这对谁都不是好事。所以包名保留 `whereis`，安装出来的命令叫
+`wis`。
 
-## Development
+和 ripgrep 是同一种安排——它的包名是 `ripgrep`，命令是 `rg`。
+
+## 开发
 
 ```sh
-cargo build --release     # produces target/release/wis
+cargo build --release     # 产物是 target/release/wis
 cargo test
 cargo clippy --all-targets
 
@@ -235,25 +224,22 @@ cargo run -- --help
 sudo ./target/release/wis sshd_config
 ```
 
-`probe/` holds the original C feasibility prototype and its write-up. It is kept
-for reference and is not part of the build.
+`probe/` 存放最初的 C 可行性原型及其报告，仅作参考，不参与构建。
 
-## Roadmap
+## 路线图
 
-Done: parallel reads. The batched traversal over a thread pool took cold-cache
-scans from 6.5 s to 1.0 s.
+已完成：并行读取（冷缓存扫描从 6.5 s 降到 1.0 s）；正则匹配、条数限制与排序；
+简体中文、繁体中文和英文三种语言。
 
-Not yet, roughly in the order they seem worth doing:
+尚未做，大致按值得做的顺序排列：
 
-1. An in-memory index with incremental updates, if filesystems get big enough to
-   need it.
-2. Other filesystems, behind a per-filesystem decoder.
-3. A `getdents`-based fallback for filesystems with no block device.
-4. Glob matching, and matching against the full path rather than just the name.
-5. Resolving extent trees above depth 0 in parallel too. Currently those index
-   blocks are read on the serial path, which is fine in practice: this filesystem
-   has only 344 of them across 36,000 directories.
+1. glob 匹配，以及对完整路径而非仅文件名的匹配。
+2. 把深度大于 0 的 extent 树也纳入并行。目前这些索引块走的是串行路径，实际影响可以忽略：
+   本机 36,000 个目录中只有 344 个这样的块。
 
-## License
+以下是有意排除在范围之外的（毕竟这只是个玩具）：带增量更新的常驻索引、按文件系统拆分的
+其他文件系统解码器、以及为无块设备文件系统准备的 `getdents` 兜底方案。
+
+## 许可证
 
 MIT

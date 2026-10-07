@@ -1,5 +1,6 @@
 mod error;
 mod ext4;
+mod i18n;
 mod matcher;
 mod mounts;
 mod sort;
@@ -10,41 +11,9 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use error::{Error, Result};
+use i18n::Lang;
 use matcher::Matcher;
 use sort::{SortDir, SortKey};
-
-const USAGE: &str = "\
-wis - instant filename search on Linux
-
-USAGE:
-    wis [OPTIONS] <NAME>
-
-Searches file names on the root filesystem by reading the ext4 metadata directly
-from the block device, without walking the directory tree through the kernel.
-Reading a block device requires root.
-
-ARGS:
-    <NAME>    What to look for in a file name: by default a case-insensitive
-              substring, with --regex a regular expression
-
-OPTIONS:
-    -r, --regex             Treat <NAME> as a regular expression, searched within
-                            the file name. Matching stays case-insensitive unless
-                            the pattern says otherwise with (?-i)
-    -n, --limit <N>         Print at most N results, applied after sorting
-    -s, --sort <KEY> [DIR]  Sort by KEY in direction DIR, which defaults to asc.
-                            KEY: name, path, ext, size, mtime
-                            DIR: asc, desc
-    -d, --device <PATH>     Scan this block device (or filesystem image) instead
-                            of the filesystem mounted at /
-    -j, --threads <N>       Concurrent metadata reads to keep in flight
-                            (default 16; the scan is latency-bound, not CPU-bound)
-    -h, --help              Print this help
-    -V, --version           Print version
-
-`size` and `mtime` cost one extra inode read per match, because the walk itself
-only ever reads directory inodes.
-";
 
 /// The scan is bound by device latency rather than by CPU, so this sits well
 /// above the core count on purpose. Measured on this machine's SATA SSD, for the
@@ -63,7 +32,14 @@ struct Args {
 }
 
 fn main() -> ExitCode {
-    match run() {
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+
+    // The language has to be settled before anything at all can be reported,
+    // argument errors included, so `--lang` is picked out of the raw arguments
+    // before the real parse.
+    i18n::set_lang(prescan_lang(&argv));
+
+    match run(&argv) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             // Dying quietly on a closed pipe (`| head`) is correct behaviour.
@@ -72,18 +48,28 @@ fn main() -> ExitCode {
             }
             eprintln!("wis: {e}");
             if e.is_permission_denied() {
-                eprintln!("hint: reading a block device needs root -- try `sudo wis ...`");
+                eprintln!("{}", i18n::t!(hint_root));
             }
             if matches!(e, Error::Usage(_)) {
-                eprint!("\n{USAGE}");
+                eprint!("\n{}", i18n::usage(i18n::lang()));
             }
             ExitCode::FAILURE
         }
     }
 }
 
-fn run() -> Result<()> {
-    let args = parse_args()?;
+/// Look for `--lang` in the raw arguments. An unusable value is ignored here and
+/// reported by the real parse, which runs in the environment's language.
+fn prescan_lang(argv: &[String]) -> Lang {
+    argv.iter()
+        .rposition(|arg| arg == "--lang")
+        .and_then(|i| argv.get(i + 1))
+        .and_then(|value| Lang::parse(value))
+        .unwrap_or_else(Lang::detect)
+}
+
+fn run(argv: &[String]) -> Result<()> {
+    let args = parse_args(argv)?;
 
     let device = match &args.device {
         Some(explicit) => explicit.clone(),
@@ -117,31 +103,35 @@ fn run() -> Result<()> {
     let stdout = io::stdout();
     let mut out = io::BufWriter::new(stdout.lock());
     for hit in &hits {
-        out.write_all(&hit.path).map_err(|e| Error::io("write to stdout", e))?;
-        out.write_all(b"\n").map_err(|e| Error::io("write to stdout", e))?;
+        out.write_all(&hit.path).map_err(|e| Error::io(i18n::t!(io_write_stdout), e))?;
+        out.write_all(b"\n").map_err(|e| Error::io(i18n::t!(io_write_stdout), e))?;
     }
-    out.flush().map_err(|e| Error::io("flush stdout", e))?;
+    out.flush().map_err(|e| Error::io(i18n::t!(io_flush_stdout), e))?;
 
     let shown = if hits.len() == matched {
-        format!("{matched} match(es)")
+        i18n::t!(matches_all, n = matched)
     } else {
-        format!("{} of {matched} match(es)", hits.len())
+        i18n::t!(matches_limited, shown = hits.len(), total = matched)
     };
+    let stats = result.stats;
     eprintln!(
-        "wis: {shown} in {:.3}s -- {} entries in {} dirs, {:.1} MiB read \
-         ({} inodes, {} extent nodes) on {} threads",
-        elapsed.as_secs_f64(),
-        result.stats.entries,
-        result.stats.dirs,
-        result.stats.bytes_read as f64 / (1024.0 * 1024.0),
-        result.stats.inode_reads,
-        result.stats.extent_node_reads,
-        threads,
+        "wis: {}",
+        i18n::t!(
+            summary,
+            shown = shown,
+            secs = format!("{:.3}", elapsed.as_secs_f64()),
+            entries = stats.entries,
+            dirs = stats.dirs,
+            mib = format!("{:.1}", stats.bytes_read as f64 / (1024.0 * 1024.0)),
+            inodes = stats.inode_reads,
+            nodes = stats.extent_node_reads,
+            threads = threads,
+        )
     );
     Ok(())
 }
 
-fn parse_args() -> Result<Args> {
+fn parse_args(argv: &[String]) -> Result<Args> {
     let mut name: Option<String> = None;
     let mut device: Option<PathBuf> = None;
     let mut threads: Option<usize> = None;
@@ -150,11 +140,13 @@ fn parse_args() -> Result<Args> {
     let mut sort_key = SortKey::Path;
     let mut sort_dir = SortDir::Asc;
 
-    let mut argv = std::env::args().skip(1).peekable();
-    while let Some(arg) = argv.next() {
-        match arg.as_str() {
+    let mut i = 0;
+    while i < argv.len() {
+        let arg = argv[i].as_str();
+        i += 1;
+        match arg {
             "-h" | "--help" => {
-                print!("{USAGE}");
+                print!("{}", i18n::usage(i18n::lang()));
                 std::process::exit(0);
             }
             "-V" | "--version" => {
@@ -163,70 +155,77 @@ fn parse_args() -> Result<Args> {
             }
             "-r" | "--regex" => regex = true,
             "-d" | "--device" => {
-                let value = argv
-                    .next()
-                    .ok_or_else(|| Error::usage("--device requires a value"))?;
-                device = Some(PathBuf::from(value));
+                device = Some(PathBuf::from(value_of(argv, &mut i, "--device")?));
             }
             "-n" | "--limit" => {
-                let value = argv
-                    .next()
-                    .ok_or_else(|| Error::usage("--limit requires a value"))?;
-                limit = Some(
-                    value
-                        .parse()
-                        .map_err(|_| Error::usage(format!("`{value}` is not a count")))?,
-                );
+                let value = value_of(argv, &mut i, "--limit")?;
+                limit = Some(value.parse().map_err(|_| {
+                    Error::usage(i18n::t!(err_not_a_number, value = value))
+                })?);
             }
             "-j" | "--threads" => {
-                let value = argv
-                    .next()
-                    .ok_or_else(|| Error::usage("--threads requires a value"))?;
-                let n: usize = value
-                    .parse()
-                    .map_err(|_| Error::usage(format!("`{value}` is not a thread count")))?;
-                if n == 0 {
-                    return Err(Error::usage("--threads must be at least 1"));
+                let value = value_of(argv, &mut i, "--threads")?;
+                let count: usize = value.parse().map_err(|_| {
+                    Error::usage(i18n::t!(err_not_a_number, value = value))
+                })?;
+                if count == 0 {
+                    return Err(Error::usage(i18n::t!(err_threads_min)));
                 }
-                threads = Some(n);
+                threads = Some(count);
+            }
+            "--lang" => {
+                let value = value_of(argv, &mut i, "--lang")?;
+                if Lang::parse(&value).is_none() {
+                    return Err(Error::usage(i18n::t!(
+                        err_unknown_lang,
+                        value = value,
+                        langs = i18n::SUPPORTED
+                    )));
+                }
             }
             "-s" | "--sort" => {
-                let value = argv
-                    .next()
-                    .ok_or_else(|| Error::usage("--sort requires a key"))?;
+                let value = value_of(argv, &mut i, "--sort")?;
                 sort_key = SortKey::parse(&value).ok_or_else(|| {
-                    Error::usage(format!(
-                        "unknown sort key `{value}` (expected one of: {})",
-                        SortKey::NAMES
+                    Error::usage(i18n::t!(
+                        err_unknown_sort_key,
+                        key = value,
+                        keys = SortKey::NAMES
                     ))
                 })?;
-                // The direction is optional, but only consume the next argument
-                // if it really is one -- otherwise `wis -s size NAME` would eat
-                // the search term.
-                if let Some(dir) = argv.peek().and_then(|next| SortDir::parse(next)) {
-                    sort_dir = dir;
-                    argv.next();
+                // The direction is optional, and only consumed when it really is
+                // one -- otherwise `wis -s size NAME` would eat the search term.
+                if let Some(direction) = argv.get(i).and_then(|next| SortDir::parse(next)) {
+                    sort_dir = direction;
+                    i += 1;
                 }
             }
             other if other.starts_with('-') && other.len() > 1 => {
-                return Err(Error::usage(format!("unknown option `{other}`")));
+                return Err(Error::usage(i18n::t!(err_unknown_option, option = other)));
             }
             _ => {
                 if name.is_some() {
-                    return Err(Error::usage("expected exactly one NAME"));
+                    return Err(Error::usage(i18n::t!(err_expected_one_name)));
                 }
-                name = Some(arg);
+                name = Some(arg.to_owned());
             }
         }
     }
 
-    let name = name.ok_or_else(|| Error::usage("missing NAME"))?;
+    let name = name.ok_or_else(|| Error::usage(i18n::t!(err_missing_name)))?;
     Ok(Args { name, device, threads, regex, limit, sort_key, sort_dir })
+}
+
+fn value_of(argv: &[String], i: &mut usize, option: &str) -> Result<String> {
+    let value = argv
+        .get(*i)
+        .ok_or_else(|| Error::usage(i18n::t!(err_option_needs_value, option = option)))?;
+    *i += 1;
+    Ok(value.clone())
 }
 
 /// Find the block device backing `/`.
 fn resolve_root_device() -> Result<PathBuf> {
-    let mounts = mounts::read_mounts().map_err(|e| Error::io("read /proc/self/mounts", e))?;
+    let mounts = mounts::read_mounts().map_err(|e| Error::io(i18n::t!(io_read_mounts), e))?;
     let root = Path::new("/");
 
     let entry = mounts::mount_for_path(&mounts, root).ok_or_else(|| Error::NoBlockDevice {
@@ -247,9 +246,12 @@ fn resolve_root_device() -> Result<PathBuf> {
         if other.fstype == "ext4" && other.target != entry.target && other.source.starts_with("/dev/")
         {
             eprintln!(
-                "wis: note: {} at {} is a separate ext4 filesystem and is not searched yet",
-                other.source,
-                other.target.display()
+                "{}",
+                i18n::t!(
+                    note_other_ext4,
+                    device = other.source,
+                    target = other.target.display()
+                )
             );
         }
     }

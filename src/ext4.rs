@@ -39,6 +39,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use crate::error::{Error, Result};
+use crate::i18n;
 
 // ---------------------------------------------------------------- constants
 
@@ -186,21 +187,18 @@ pub struct Scanner {
 impl Scanner {
     pub fn open(device: &Path, threads: usize) -> Result<Self> {
         let meta = std::fs::metadata(device)
-            .map_err(|e| Error::io(format!("stat {}", device.display()), e))?;
+            .map_err(|e| Error::io(i18n::t!(io_stat, path = device.display()), e))?;
         let ft = meta.file_type();
         if !ft.is_block_device() && !ft.is_file() {
-            return Err(Error::unsupported(format!(
-                "{} is neither a block device nor a regular file",
-                device.display()
-            )));
+            return Err(Error::unsupported(i18n::t!(err_not_a_device, path = device.display())));
         }
 
         let file = File::open(device)
-            .map_err(|e| Error::io(format!("open {}", device.display()), e))?;
+            .map_err(|e| Error::io(i18n::t!(io_open, path = device.display()), e))?;
 
         let mut sb = [0u8; SUPERBLOCK_LEN];
         read_exact_at(&file, &mut sb, SUPERBLOCK_OFFSET)
-            .map_err(|e| Error::io(format!("read superblock of {}", device.display()), e))?;
+            .map_err(|e| Error::io(i18n::t!(io_read_superblock, path = device.display()), e))?;
 
         let magic = le16(&sb, SB_MAGIC);
         if magic != MAGIC {
@@ -221,7 +219,7 @@ impl Scanner {
     fn parse_geometry(file: &File, sb: &[u8; SUPERBLOCK_LEN]) -> Result<Geometry> {
         let log_block_size = le32(sb, SB_LOG_BLOCK_SIZE);
         if log_block_size > 6 {
-            return Err(Error::corrupt(format!("implausible s_log_block_size {log_block_size}")));
+            return Err(Error::corrupt(i18n::t!(corrupt_log_block_size, value = log_block_size)));
         }
         let block_size = 1024u32 << log_block_size;
 
@@ -234,7 +232,7 @@ impl Scanner {
             }
         };
         if !(128..=block_size).contains(&inode_size) || !inode_size.is_power_of_two() {
-            return Err(Error::corrupt(format!("implausible s_inode_size {inode_size}")));
+            return Err(Error::corrupt(i18n::t!(corrupt_inode_size, value = inode_size)));
         }
 
         let inodes_count = le32(sb, SB_INODES_COUNT);
@@ -244,7 +242,7 @@ impl Scanner {
         let inodes_per_group = le32(sb, SB_INODES_PER_GROUP);
 
         if inodes_per_group == 0 || blocks_per_group == 0 || inodes_count == 0 {
-            return Err(Error::corrupt("zero inodes_per_group / blocks_per_group / inode count"));
+            return Err(Error::corrupt(i18n::t!(corrupt_zero_counts)));
         }
 
         let incompat = le32(sb, SB_FEATURE_INCOMPAT);
@@ -252,8 +250,7 @@ impl Scanner {
 
         if incompat & INCOMPAT_FILETYPE == 0 {
             return Err(Error::unsupported(
-                "filesystem lacks the `filetype` feature, so directory entries have a \
-                 different layout (enable it with `tune2fs -O filetype`)",
+                i18n::t!(unsupported_filetype),
             ));
         }
         if incompat & INCOMPAT_META_BG != 0 {
@@ -262,24 +259,23 @@ impl Scanner {
             // the wrong inode table locations -- and plausible-looking garbage
             // instead of an error. Refuse rather than guess.
             return Err(Error::unsupported(
-                "filesystem uses `meta_bg`: the group descriptors are not stored as one \
-                 contiguous table, which this reader does not handle",
+                i18n::t!(unsupported_meta_bg),
             ));
         }
         if incompat & INCOMPAT_INLINE_DATA != 0 {
             return Err(Error::unsupported(
-                "filesystem uses `inline_data`: small directories live inside the inode",
+                i18n::t!(unsupported_inline_data),
             ));
         }
         if ro_compat & RO_COMPAT_BIGALLOC != 0 {
             return Err(Error::unsupported(
-                "filesystem uses `bigalloc`: extents are counted in clusters, not blocks",
+                i18n::t!(unsupported_bigalloc),
             ));
         }
         if incompat & INCOMPAT_EXTENTS == 0 {
             // Not fatal -- we fall back to legacy indirect block maps -- but worth
             // knowing, since it means the whole filesystem predates extents.
-            eprintln!("wis: note: filesystem has no `extent` feature; using legacy block maps");
+            eprintln!("{}", i18n::t!(note_no_extent));
         }
 
         let desc_size = if incompat & INCOMPAT_64BIT != 0 {
@@ -293,7 +289,7 @@ impl Scanner {
             32
         };
         if desc_size < 32 {
-            return Err(Error::corrupt(format!("group descriptor size {desc_size} is too small")));
+            return Err(Error::corrupt(i18n::t!(corrupt_desc_size, value = desc_size)));
         }
 
         let groups_by_inodes = (inodes_count as u64).div_ceil(inodes_per_group as u64);
@@ -301,7 +297,7 @@ impl Scanner {
             .div_ceil(blocks_per_group as u64);
         let group_count = groups_by_inodes.max(groups_by_blocks) as u32;
         if group_count == 0 {
-            return Err(Error::corrupt("filesystem reports zero block groups"));
+            return Err(Error::corrupt(i18n::t!(corrupt_zero_groups)));
         }
 
         // The group descriptor table sits in the block right after the one
@@ -310,7 +306,7 @@ impl Scanner {
         let gdt_len = group_count as u64 * desc_size as u64;
         let mut gdt = vec![0u8; gdt_len as usize];
         read_exact_at(file, &mut gdt, gdt_offset)
-            .map_err(|e| Error::io("read group descriptor table", e))?;
+            .map_err(|e| Error::io(i18n::t!(io_read_gdt), e))?;
 
         let mut inode_table = Vec::with_capacity(group_count as usize);
         for g in 0..group_count as usize {
@@ -576,7 +572,7 @@ impl Scanner {
 
     fn read_into(&self, offset: u64, buf: &mut [u8]) -> Result<()> {
         read_exact_at(&self.file, buf, offset).map_err(|e| {
-            Error::io(format!("read {} bytes at offset {offset}", buf.len()), e)
+            Error::io(i18n::t!(io_read_bytes, len = buf.len(), offset = offset), e)
         })?;
         self.bytes_read.fetch_add(buf.len() as u64, Ordering::Relaxed);
         Ok(())
@@ -590,7 +586,7 @@ impl Scanner {
         }
         let off = self.inode_offset(ino);
         read_exact_at(&self.file, buf, off)
-            .map_err(|e| Error::io(format!("read inode {ino}"), e))?;
+            .map_err(|e| Error::io(i18n::t!(io_read_inode, inode = ino), e))?;
         self.inode_reads.fetch_add(1, Ordering::Relaxed);
         self.bytes_read.fetch_add(buf.len() as u64, Ordering::Relaxed);
         Ok(())
@@ -673,12 +669,10 @@ impl Scanner {
     /// `node` is a block (or the inode's inline area) holding an extent header.
     fn walk_extent_node(&self, node: &[u8], depth: usize, out: &mut Vec<u64>) -> Result<()> {
         if depth > MAX_EXTENT_DEPTH {
-            return Err(Error::corrupt(format!(
-                "extent tree depth {depth} exceeds {MAX_EXTENT_DEPTH}"
-            )));
+            return Err(Error::corrupt(i18n::t!(corrupt_extent_depth, depth = depth, max = MAX_EXTENT_DEPTH)));
         }
         if node.len() < 12 {
-            return Err(Error::corrupt("truncated extent header"));
+            return Err(Error::corrupt(i18n::t!(corrupt_truncated_extent)));
         }
 
         // Clamp the entry count to what the node can physically hold, so a

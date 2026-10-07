@@ -1,7 +1,12 @@
 use std::fmt;
 use std::io;
 
+use crate::i18n;
+
 /// Everything that can go wrong, with enough context to be actionable.
+///
+/// Messages are rendered at [`fmt::Display`] time from the catalogue, so the
+/// output follows whatever language was resolved at startup.
 #[derive(Debug)]
 pub enum Error {
     /// An I/O operation failed; the string says which one.
@@ -64,18 +69,24 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::Io { context, source } => write!(f, "{context}: {source}"),
-            Error::NotExt4 { device, magic } => write!(
-                f,
-                "{device} is not an ext4 filesystem (superblock magic 0x{magic:04x}, expected 0xef53)"
-            ),
-            Error::Unsupported(what) => write!(f, "unsupported: {what}"),
-            Error::Corrupt(what) => write!(f, "malformed filesystem metadata: {what}"),
-            Error::NoBlockDevice { path, fstype } => write!(
-                f,
-                "cannot search {path}: it is a {fstype} filesystem, and only ext4 on a block device is supported so far"
-            ),
-            Error::Usage(what) => write!(f, "{what}"),
-            Error::BadPattern(what) => write!(f, "bad regular expression: {what}"),
+            Error::NotExt4 { device, magic } => f.write_str(&i18n::t!(
+                err_not_ext4,
+                device = device,
+                magic = format!("{magic:04x}")
+            )),
+            Error::Unsupported(what) => {
+                f.write_str(&i18n::t!(err_unsupported, what = what))
+            }
+            Error::Corrupt(what) => f.write_str(&i18n::t!(err_corrupt, what = what)),
+            Error::NoBlockDevice { path, fstype } => f.write_str(&i18n::t!(
+                err_no_block_device,
+                path = path,
+                fstype = fstype
+            )),
+            Error::Usage(what) => f.write_str(what),
+            Error::BadPattern(what) => {
+                f.write_str(&i18n::t!(err_bad_pattern, what = what))
+            }
         }
     }
 }
