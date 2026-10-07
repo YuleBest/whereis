@@ -2,7 +2,7 @@
 name = "whereis"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.70"
+rust-version = "1.75"
 description = "Instant filename search on Linux by reading filesystem metadata directly from the block device"
 license = "MIT"
 

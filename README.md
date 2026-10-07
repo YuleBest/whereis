@@ -49,6 +49,7 @@ piping stdout is clean.
 | Option | Meaning |
 |---|---|
 | `-d`, `--device <PATH>` | Scan this block device or filesystem image instead of the filesystem mounted at `/` |
+| `-j`, `--threads <N>` | Concurrent metadata reads to keep in flight (default 16) |
 | `-h`, `--help` | Print help |
 | `-V`, `--version` | Print version |
 
@@ -68,6 +69,13 @@ the type of the inode it points at, so only **directory** inodes ever need to be
 read. That is what keeps the I/O down to the directory blocks — 170 MiB for a
 500,000-entry filesystem.
 
+The walk runs in batches rather than one directory at a time, because those reads
+are scattered and would otherwise serialise on latency. A batch of directories has
+all of its inodes read in parallel, then all of its data blocks read in parallel;
+parsing them afterwards is pure CPU work and stays single-threaded. A directory's
+data blocks cannot be known before its inode has been read, so those two steps
+cannot be merged — but within each step the reads are independent.
+
 ### Two things that are easy to get wrong
 
 **Directory entry names are not NUL-terminated.** They must be sliced using the
@@ -86,20 +94,45 @@ More on the feasibility work, including measurements, is in
 
 ## Performance
 
-Root filesystem: 112 GiB ext4, ~500,000 entries, cheap SATA SSD.
+Root filesystem: 112 GiB ext4, ~500,000 entries, cheap SATA SSD (479 MB/s
+sequential, ~87 µs random-read latency).
+
+Scan time, best of several runs:
+
+| threads | warm cache | cold cache |
+|---|---|---|
+| 1 | 0.142 s | 3.83 s |
+| 4 | 0.109 s | 1.58 s |
+| **16** (default) | 0.140 s | 1.04 s |
+| 32 | 0.172 s | 0.99 s |
+
+Whole command, including process start, sorting and writing the output:
 
 | | warm cache | cold cache |
 |---|---|---|
-| `wis ""` (full enumeration) | 0.16 s scan | 6.5 s |
-| `find / -xdev` | 0.97 s | 9.7 s |
+| `wis ""` (full enumeration) | 0.39 s | 1.34 s |
+| `find / -xdev` | 1.16 s | 9.59 s |
 
-Cold cache is bounded by the latency of ~70,000 scattered reads rather than by
-bandwidth, so there is a lot of headroom in parallelising them. Warm cache is
-already at the point where a periodic full rescan is cheaper than maintaining an
-incremental index.
+The metadata reads are scattered, so on a cold page cache the walk is bound by
+per-read latency rather than by bandwidth: ~70,000 reads serialise into ~4
+seconds, while the device can move the same 170 MiB in under a second given
+enough requests in flight. That is what the batching and the thread pool buy.
+
+Past 16 threads the cold curve flattens (the device queue saturates) and the warm
+curve turns upward (waking 32 threads costs more than the reads it parallelises).
+Warm cache at 4 threads is in fact marginally faster than at 16, but 16 is the
+better default: it is half a second faster cold, and the warm difference is 30 ms,
+below the threshold where anyone notices.
+
+Even cold, a full scan is now cheap enough that a periodic rescan beats
+maintaining an incremental index.
 
 ## Known limitations
 
+* **Unsupported features are refused, not guessed at.** `meta_bg`, `inline_data`
+  and `bigalloc` change the on-disk layout in ways this reader does not decode,
+  and the `filetype` feature is required. On such a filesystem it exits with a
+  clear message rather than returning plausible-looking wrong paths.
 * **Only ext4 on a block device.** tmpfs, overlayfs, btrfs, XFS, NFS and FUSE
   mounts have no block device to read, or a completely different on-disk format.
   Run against a non-ext4 root, the tool says so and exits.
@@ -113,6 +146,10 @@ incremental index.
 * **No index cache.** Every invocation rescans from scratch. At 0.1 s warm this
   is fine; it will need revisiting on much larger filesystems.
 * **No regex, no globs, no path matching** — plain substring only.
+* **Encrypted directories would yield ciphertext names.** The `encrypt` feature
+  is not checked, so in a directory with the encryption flag the names decoded
+  from disk are encrypted. The tree structure stays correct; only the names are
+  unreadable. Not detected or reported yet.
 
 ## Why `wis`?
 
@@ -139,14 +176,19 @@ for reference and is not part of the build.
 
 ## Roadmap
 
+Done: parallel reads. The batched traversal over a thread pool took cold-cache
+scans from 6.5 s to 1.0 s.
+
 Not yet, roughly in the order they seem worth doing:
 
-1. Parallel reads (io_uring) to cut cold-start time.
-2. An in-memory index with incremental updates, if filesystems get big enough to
+1. An in-memory index with incremental updates, if filesystems get big enough to
    need it.
-3. Other filesystems, behind a per-filesystem decoder.
-4. A `getdents`-based fallback for filesystems with no block device.
-5. Regex / glob matching, and matching against the full path.
+2. Other filesystems, behind a per-filesystem decoder.
+3. A `getdents`-based fallback for filesystems with no block device.
+4. Regex / glob matching, and matching against the full path.
+5. Resolving extent trees above depth 0 in parallel too. Currently those index
+   blocks are read on the serial path, which is fine in practice: this filesystem
+   has only 344 of them across 36,000 directories.
 
 ## License
 
