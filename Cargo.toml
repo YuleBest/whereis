@@ -7,7 +7,7 @@ description = "Instant filename search on Linux by reading filesystem metadata d
 license = "MIT"
 
 [[bin]]
-name = "whereis"
+name = "wis"
 path = "src/main.rs"
 
 # No dependencies: the whole point is to talk to the disk ourselves.

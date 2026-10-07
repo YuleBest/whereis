@@ -196,7 +196,7 @@ impl Scanner {
         if incompat & INCOMPAT_EXTENTS == 0 {
             // Not fatal -- we fall back to legacy indirect block maps -- but worth
             // knowing, since it means the whole filesystem predates extents.
-            eprintln!("whereis: note: filesystem has no `extent` feature; using legacy block maps");
+            eprintln!("wis: note: filesystem has no `extent` feature; using legacy block maps");
         }
 
         let desc_size = if incompat & INCOMPAT_64BIT != 0 {

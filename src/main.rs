@@ -10,10 +10,10 @@ use std::time::Instant;
 use error::{Error, Result};
 
 const USAGE: &str = "\
-whereis - instant filename search on Linux
+wis - instant filename search on Linux
 
 USAGE:
-    whereis [OPTIONS] <NAME>
+    wis [OPTIONS] <NAME>
 
 Searches file names on the root filesystem by reading the ext4 metadata directly
 from the block device, without walking the directory tree through the kernel.
@@ -42,9 +42,9 @@ fn main() -> ExitCode {
             if e.is_broken_pipe() {
                 return ExitCode::SUCCESS;
             }
-            eprintln!("whereis: {e}");
+            eprintln!("wis: {e}");
             if e.is_permission_denied() {
-                eprintln!("hint: reading a block device needs root -- try `sudo whereis ...`");
+                eprintln!("hint: reading a block device needs root -- try `sudo wis ...`");
             }
             if matches!(e, Error::Usage(_)) {
                 eprint!("\n{USAGE}");
@@ -81,7 +81,7 @@ fn run() -> Result<()> {
     out.flush().map_err(|e| Error::io("flush stdout", e))?;
 
     eprintln!(
-        "whereis: {} match(es) in {:.3}s -- {} entries in {} dirs, {:.1} MiB read",
+        "wis: {} match(es) in {:.3}s -- {} entries in {} dirs, {:.1} MiB read",
         paths.len(),
         elapsed.as_secs_f64(),
         result.stats.entries,
@@ -103,7 +103,7 @@ fn parse_args() -> Result<Args> {
                 std::process::exit(0);
             }
             "-V" | "--version" => {
-                println!("whereis {}", env!("CARGO_PKG_VERSION"));
+                println!("wis {}", env!("CARGO_PKG_VERSION"));
                 std::process::exit(0);
             }
             "-d" | "--device" => {
@@ -151,7 +151,7 @@ fn resolve_root_device() -> Result<PathBuf> {
         if other.fstype == "ext4" && other.target != entry.target && other.source.starts_with("/dev/")
         {
             eprintln!(
-                "whereis: note: {} at {} is a separate ext4 filesystem and is not searched yet",
+                "wis: note: {} at {} is a separate ext4 filesystem and is not searched yet",
                 other.source,
                 other.target.display()
             );

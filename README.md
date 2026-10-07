@@ -2,6 +2,9 @@
 
 Instant filename search on Linux, in the spirit of Windows' *Everything*.
 
+The package is called `whereis`; the command it installs is **`wis`**. See
+[Why `wis`?](#why-wis).
+
 `whereis` does not walk the directory tree through the kernel. It opens the
 block device read-only and decodes the ext4 filesystem's own metadata
 (superblock → group descriptors → inode tables → extent trees → directory
@@ -23,21 +26,21 @@ Early. One command, one filesystem type, no index cache. See
 ## Usage
 
 ```
-whereis [OPTIONS] <NAME>
+wis [OPTIONS] <NAME>
 ```
 
 `<NAME>` is a case-insensitive substring matched against file *names* (not full
 paths). Matching is done on raw bytes, so non-UTF-8 names work.
 
 ```console
-$ sudo whereis sshd_config
+$ sudo wis sshd_config
 /etc/ssh/sshd_config
 /etc/ssh/sshd_config.d
 /usr/share/man/man5/sshd_config.5.gz
 /usr/share/openssh/sshd_config
 /usr/share/openssh/sshd_config.md5sum
 /var/lib/ucf/cache/:etc:ssh:sshd_config
-whereis: 6 match(es) in 0.128s -- 501106 entries in 36151 dirs, 170.5 MiB read
+wis: 6 match(es) in 0.128s -- 501106 entries in 36151 dirs, 170.5 MiB read
 ```
 
 Results go to stdout, sorted, one path per line. The summary goes to stderr, so
@@ -87,7 +90,7 @@ Root filesystem: 112 GiB ext4, ~500,000 entries, cheap SATA SSD.
 
 | | warm cache | cold cache |
 |---|---|---|
-| `whereis ""` (full enumeration) | 0.16 s scan | 6.5 s |
+| `wis ""` (full enumeration) | 0.16 s scan | 6.5 s |
 | `find / -xdev` | 0.97 s | 9.7 s |
 
 Cold cache is bounded by the latency of ~70,000 scattered reads rather than by
@@ -111,19 +114,24 @@ incremental index.
   is fine; it will need revisiting on much larger filesystems.
 * **No regex, no globs, no path matching** — plain substring only.
 
-## Name clash
+## Why `wis`?
 
-`/usr/bin/whereis` already exists; it is util-linux's binary-location tool and
-does something entirely different. Installing this project as `whereis` will
-shadow it. Run it via `cargo run` or `./target/release/whereis`, or install it
-under another name.
+`/usr/bin/whereis` is already taken: it is util-linux's binary-location tool,
+which does something entirely different. Installing this project under that name
+would silently shadow it, which is a bad trade for everyone. So the package keeps
+the name `whereis` and the command it installs is `wis`.
+
+Same arrangement as ripgrep, whose package is `ripgrep` and whose command is `rg`.
 
 ## Development
 
 ```sh
-cargo build --release
+cargo build --release     # produces target/release/wis
 cargo test
 cargo clippy --all-targets
+
+cargo run -- --help
+sudo ./target/release/wis sshd_config
 ```
 
 `probe/` holds the original C feasibility prototype and its write-up. It is kept
