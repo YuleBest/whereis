@@ -41,6 +41,7 @@ with `-r` it is a regular expression.
 | `-d`, `--device <PATH>` | Scan this block device instead of the filesystem mounted at `/` |
 | `-j`, `--threads <N>` | Concurrent metadata reads to keep in flight (default 16) |
 | `--lang <LANG>` | Force the output language: `zh-Hans`, `zh-Hant`, `en` |
+| `-c`, `--clean` | Suppress the summary line on stderr |
 | `-h`, `--help` / `-V`, `--version` | Print help / print version |
 
 ```console

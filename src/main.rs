@@ -29,6 +29,7 @@ struct Args {
     limit: Option<usize>,
     sort_key: SortKey,
     sort_dir: SortDir,
+    clean: bool,
 }
 
 fn main() -> ExitCode {
@@ -116,21 +117,23 @@ fn run(argv: &[String]) -> Result<()> {
     } else {
         i18n::t!(matches_limited, shown = hits.len(), total = matched)
     };
-    let stats = result.stats;
-    eprintln!(
-        "wis: {}",
-        i18n::t!(
-            summary,
-            shown = shown,
-            secs = format!("{:.3}", elapsed.as_secs_f64()),
-            entries = stats.entries,
-            dirs = stats.dirs,
-            mib = format!("{:.1}", stats.bytes_read as f64 / (1024.0 * 1024.0)),
-            inodes = stats.inode_reads,
-            nodes = stats.extent_node_reads,
-            threads = threads,
-        )
-    );
+    if !args.clean {
+        let stats = result.stats;
+        eprintln!(
+            "wis: {}",
+            i18n::t!(
+                summary,
+                shown = shown,
+                secs = format!("{:.3}", elapsed.as_secs_f64()),
+                entries = stats.entries,
+                dirs = stats.dirs,
+                mib = format!("{:.1}", stats.bytes_read as f64 / (1024.0 * 1024.0)),
+                inodes = stats.inode_reads,
+                nodes = stats.extent_node_reads,
+                threads = threads,
+            )
+        );
+    }
     Ok(())
 }
 
@@ -139,6 +142,7 @@ fn parse_args(argv: &[String]) -> Result<Args> {
     let mut device: Option<PathBuf> = None;
     let mut threads: Option<usize> = None;
     let mut regex = false;
+    let mut clean = false;
     let mut limit: Option<usize> = None;
     let mut sort_key = SortKey::Path;
     let mut sort_dir = SortDir::Asc;
@@ -157,6 +161,7 @@ fn parse_args(argv: &[String]) -> Result<Args> {
                 std::process::exit(0);
             }
             "-r" | "--regex" => regex = true,
+            "-c" | "--clean" => clean = true,
             "-d" | "--device" => {
                 device = Some(PathBuf::from(value_of(argv, &mut i, "--device")?));
             }
@@ -225,6 +230,7 @@ fn parse_args(argv: &[String]) -> Result<Args> {
         limit,
         sort_key,
         sort_dir,
+        clean,
     })
 }
 

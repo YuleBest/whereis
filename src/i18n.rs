@@ -114,6 +114,7 @@ pub struct Text {
     pub opt_device: &'static str,
     pub opt_threads: &'static str,
     pub opt_lang: &'static str,
+    pub opt_clean: &'static str,
     pub opt_help: &'static str,
     pub opt_version: &'static str,
     pub usage_footer: &'static str,
@@ -240,6 +241,7 @@ pub fn usage(lang: Lang) -> String {
         text.opt_device,
         text.opt_threads,
         text.opt_lang,
+        text.opt_clean,
         text.opt_help,
         text.opt_version,
     ] {
@@ -277,6 +279,7 @@ static EN: Text = Text {
                   \x20                           (default 16; the scan is latency-bound, not CPU-bound)",
     opt_lang: "    --lang <LANG>           Force the output language: zh-Hans, zh-Hant, en\n\
                \x20                           (default: from LC_ALL, LANGUAGE, LC_MESSAGES, LANG)",
+    opt_clean: "    -c, --clean             Suppress the summary line on stderr",
     opt_help: "    -h, --help              Print this help",
     opt_version: "    -V, --version           Print version",
     usage_footer: "`size` and `mtime` cost one extra inode read per match, because the walk itself\n\
@@ -358,6 +361,7 @@ static ZH_HANS: Text = Text {
     opt_threads: "    -j, --threads <N>    并发读取数（默认 16；扫描受设备延迟限制，而非 CPU）",
     opt_lang: "    --lang <语言>        强制指定输出语言：zh-Hans、zh-Hant、en\n\
                \x20                        （默认从 LC_ALL、LANGUAGE、LC_MESSAGES、LANG 推断）",
+    opt_clean: "    -c, --clean          不输出 stderr 上的统计信息",
     opt_help: "    -h, --help           显示本帮助",
     opt_version: "    -V, --version        显示版本",
     usage_footer:
@@ -434,6 +438,7 @@ static ZH_HANT: Text = Text {
     opt_threads: "    -j, --threads <N>    並行讀取數（預設 16；掃描受裝置延遲限制，而非 CPU）",
     opt_lang: "    --lang <語言>        強制指定輸出語言：zh-Hans、zh-Hant、en\n\
                \x20                        （預設由 LC_ALL、LANGUAGE、LC_MESSAGES、LANG 推斷）",
+    opt_clean: "    -c, --clean          不輸出 stderr 上的統計資訊",
     opt_help: "    -h, --help           顯示本說明",
     opt_version: "    -V, --version        顯示版本",
     usage_footer: "以 size 和 mtime 排序時，每筆命中需額外讀取一次 inode，因為走訪本身只讀取目錄的 inode。",
@@ -527,6 +532,7 @@ mod tests {
                 text.opt_device,
                 text.opt_threads,
                 text.opt_lang,
+                text.opt_clean,
                 text.opt_help,
                 text.opt_version,
                 text.usage_footer,
@@ -690,6 +696,7 @@ mod tests {
                 "--device",
                 "--threads",
                 "--lang",
+                "--clean",
             ] {
                 assert!(text.contains(option), "{lang:?} help omits {option}");
             }
