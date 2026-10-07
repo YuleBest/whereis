@@ -43,8 +43,10 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           mkdir -p dist
-          tar -C "target/${{ matrix.target }}/release" -czf \
-            "dist/wis-${version}-${{ matrix.target }}.tar.gz" wis
+          # Set the ownership explicitly, or extracting as root leaves the CI
+          # runner's uid on the installed binary.
+          tar -C "target/${{ matrix.target }}/release" --owner=root --group=root \
+            -czf "dist/wis-${version}-${{ matrix.target }}.tar.gz" wis
           ls -l dist
 
       - uses: actions/upload-artifact@v4
