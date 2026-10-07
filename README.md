@@ -13,15 +13,15 @@ second instead of a second.
 
 ## Status
 
-Early. One command, one filesystem type, no index cache. See
-[Roadmap](#roadmap) for what is deliberately not here yet.
+Early. One filesystem type, no index cache. See [Roadmap](#roadmap) for what is
+deliberately not here yet.
 
 ## Requirements
 
 * Linux
 * **ext4** on a block device
 * **root** — reading a block device needs it
-* Rust 1.70+ to build
+* Rust 1.75+ to build
 
 ## Usage
 
@@ -29,8 +29,9 @@ Early. One command, one filesystem type, no index cache. See
 wis [OPTIONS] <NAME>
 ```
 
-`<NAME>` is a case-insensitive substring matched against file *names* (not full
-paths). Matching is done on raw bytes, so non-UTF-8 names work.
+`<NAME>` is matched against file *names* — never full paths — and always on raw
+bytes, so non-UTF-8 names work. By default it is a case-insensitive substring;
+with `--regex` it is a regular expression.
 
 ```console
 $ sudo wis sshd_config
@@ -43,17 +44,68 @@ $ sudo wis sshd_config
 wis: 6 match(es) in 0.128s -- 501106 entries in 36151 dirs, 170.5 MiB read
 ```
 
-Results go to stdout, sorted, one path per line. The summary goes to stderr, so
-piping stdout is clean.
+Results go to stdout, one path per line. The summary goes to stderr, so piping
+stdout is clean.
 
 | Option | Meaning |
 |---|---|
+| `-r`, `--regex` | Treat `<NAME>` as a regular expression |
+| `-n`, `--limit <N>` | Print at most N results, applied after sorting |
+| `-s`, `--sort <KEY> [DIR]` | Sort by KEY in direction DIR (`asc`, the default, or `desc`) |
 | `-d`, `--device <PATH>` | Scan this block device or filesystem image instead of the filesystem mounted at `/` |
 | `-j`, `--threads <N>` | Concurrent metadata reads to keep in flight (default 16) |
 | `-h`, `--help` | Print help |
 | `-V`, `--version` | Print version |
 
 An empty `<NAME>` lists every entry.
+
+### Regular expressions
+
+`-r` switches the pattern from a substring to a regular expression, using the
+[Rust `regex` syntax](https://docs.rs/regex/latest/regex/#syntax). The pattern is
+*searched* within the name rather than anchored to it, so `-r '\.so\.[0-9]+$'`
+finds `libssl.so.3`. Anchor with `^` and `$` yourself.
+
+`-r` changes the pattern language and nothing else, so matching stays
+case-insensitive the way substring mode is. A pattern can opt back out with
+`(?-i)`, or scope it to part of the pattern with `(?-i:...)`.
+
+Because matching runs against raw bytes, a regex works on names that are not
+valid UTF-8.
+
+### Sorting
+
+| KEY | Sorts by |
+|---|---|
+| `path` | The full path (default) |
+| `name` | The file name, ignoring directories |
+| `ext` | The file extension; entries with no extension sort first |
+| `size` | File size in bytes |
+| `mtime` | Modification time |
+
+`DIR` is `asc` (the default) or `desc`. Ties are always broken by ascending path,
+so the output is deterministic.
+
+The direction is optional and is only consumed when it really is a direction, so
+both of these work:
+
+```console
+$ sudo wis -s size libssl        # ascending; "libssl" is the search term
+$ sudo wis -s size desc libssl
+```
+
+`size` and `mtime` are not free. The walk only reads *directory* inodes, so a
+match's own metadata is unknown until it is asked for, and those keys cost one
+extra inode read per match (done in parallel). Listing all 500,000 entries on this
+filesystem takes 0.38 s sorted by path and 0.74 s sorted by size.
+
+### Limiting
+
+`-n` applies after sorting, so it gives the top N by the chosen key:
+
+```console
+$ sudo wis -s size desc -n 10 '\.log$'
+```
 
 ## How it works
 
@@ -97,7 +149,9 @@ More on the feasibility work, including measurements, is in
 Root filesystem: 112 GiB ext4, ~500,000 entries, cheap SATA SSD (479 MB/s
 sequential, ~87 µs random-read latency).
 
-Scan time, best of several runs:
+Time to produce results, best of several runs. These are for a search matching a
+handful of entries, so they are essentially the scan time; sorting a full
+500,000-entry listing costs roughly another 0.24 s.
 
 | threads | warm cache | cold cache |
 |---|---|---|
@@ -145,11 +199,21 @@ maintaining an incremental index.
   feature for a search tool, but it is a deliberate difference from `find`.
 * **No index cache.** Every invocation rescans from scratch. At 0.1 s warm this
   is fine; it will need revisiting on much larger filesystems.
-* **No regex, no globs, no path matching** — plain substring only.
+* **Patterns apply to the file name, not the full path**, and there is no glob
+  matching — only substrings and regular expressions.
 * **Encrypted directories would yield ciphertext names.** The `encrypt` feature
   is not checked, so in a directory with the encryption flag the names decoded
   from disk are encrypted. The tree structure stays correct; only the names are
   unreadable. Not detected or reported yet.
+
+## Dependencies
+
+The disk side is deliberately dependency-free: talking to the block device
+ourselves is the whole point. The one exception is
+[`regex`](https://docs.rs/regex), because hand-rolling a regex engine would be a
+project in itself, and it is pure Rust with a `bytes` API that handles non-UTF-8
+names. It pulls in four transitive crates (`regex-automata`, `regex-syntax`,
+`aho-corasick`, `memchr`).
 
 ## Why `wis`?
 
@@ -185,7 +249,7 @@ Not yet, roughly in the order they seem worth doing:
    need it.
 2. Other filesystems, behind a per-filesystem decoder.
 3. A `getdents`-based fallback for filesystems with no block device.
-4. Regex / glob matching, and matching against the full path.
+4. Glob matching, and matching against the full path rather than just the name.
 5. Resolving extent trees above depth 0 in parallel too. Currently those index
    blocks are read on the serial path, which is fine in practice: this filesystem
    has only 344 of them across 36,000 directories.

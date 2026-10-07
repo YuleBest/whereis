@@ -16,6 +16,8 @@ pub enum Error {
     NoBlockDevice { path: String, fstype: String },
     /// The command line did not make sense.
     Usage(String),
+    /// The regular expression did not compile.
+    BadPattern(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -35,6 +37,10 @@ impl Error {
 
     pub fn usage(what: impl Into<String>) -> Self {
         Error::Usage(what.into())
+    }
+
+    pub fn bad_pattern(what: impl Into<String>) -> Self {
+        Error::BadPattern(what.into())
     }
 
     /// The underlying I/O error, if this is an I/O error at all.
@@ -69,6 +75,7 @@ impl fmt::Display for Error {
                 "cannot search {path}: it is a {fstype} filesystem, and only ext4 on a block device is supported so far"
             ),
             Error::Usage(what) => write!(f, "{what}"),
+            Error::BadPattern(what) => write!(f, "bad regular expression: {what}"),
         }
     }
 }

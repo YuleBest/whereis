@@ -10,8 +10,12 @@ license = "MIT"
 name = "wis"
 path = "src/main.rs"
 
-# No dependencies: the whole point is to talk to the disk ourselves.
+# The disk side is deliberately dependency-free -- talking to the block device
+# ourselves is the whole point. `regex` is the one exception: hand-rolling a regex
+# engine would be a project in itself, and this crate is pure Rust with a `bytes`
+# API that handles non-UTF-8 file names.
 [dependencies]
+regex = "1.13.1"
 
 [profile.release]
 opt-level = 3

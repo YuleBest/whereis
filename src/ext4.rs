@@ -86,6 +86,7 @@ const SB_DESC_SIZE: usize = 0xFE;
 // inode field offsets
 const INO_MODE: usize = 0x00;
 const INO_SIZE_LO: usize = 0x04;
+const INO_MTIME: usize = 0x10;
 const INO_SIZE_HIGH: usize = 0x6C;
 const INO_BLOCK: usize = 0x28;
 const INO_BLOCK_LEN: usize = 60;
@@ -138,8 +139,20 @@ pub struct Stats {
 }
 
 pub struct ScanResult {
-    pub paths: Vec<Vec<u8>>,
+    pub hits: Vec<Hit>,
     pub stats: Stats,
+}
+
+/// One matched entry.
+///
+/// `size` and `mtime` stay zero during the scan: the walk only reads *directory*
+/// inodes, so a matched entry's own metadata is not known until it is asked for
+/// with [`Scanner::fill_metadata`].
+pub struct Hit {
+    pub path: Vec<u8>,
+    pub inode: u32,
+    pub size: u64,
+    pub mtime: u32,
 }
 
 /// A directory in the current batch whose data blocks are being read.
@@ -153,7 +166,7 @@ struct DirWork {
 
 /// What the parse phase accumulates.
 struct ParseOut<'a> {
-    paths: &'a mut Vec<Vec<u8>>,
+    hits: &'a mut Vec<Hit>,
     frontier: &'a mut Vec<(u32, Vec<u8>)>,
     stats: &'a mut Stats,
     child_inode: &'a mut [u8],
@@ -321,7 +334,7 @@ impl Scanner {
 
         // Directories still to visit. Each carries its own full path.
         let mut frontier: Vec<(u32, Vec<u8>)> = vec![(ROOT_INO, b"/".to_vec())];
-        let mut paths: Vec<Vec<u8>> = Vec::new();
+        let mut hits: Vec<Hit> = Vec::new();
         let mut stats = Stats::default();
 
         // Batch scratch, reused so the steady state allocates nothing.
@@ -413,7 +426,7 @@ impl Scanner {
                     let base = (w.first_slot - first_slot) * block_size;
                     let data = &block_arena[base..base + w.slots * block_size];
                     let mut out = ParseOut {
-                        paths: &mut paths,
+                        hits: &mut hits,
                         frontier: &mut frontier,
                         stats: &mut stats,
                         child_inode: &mut child_inode,
@@ -427,7 +440,7 @@ impl Scanner {
         stats.inode_reads = self.inode_reads.load(Ordering::Relaxed);
         stats.extent_node_reads = self.extent_node_reads.load(Ordering::Relaxed);
         stats.bytes_read = self.bytes_read.load(Ordering::Relaxed);
-        Ok(ScanResult { paths, stats })
+        Ok(ScanResult { hits, stats })
     }
 
     /// Parse one directory's data blocks, recording matches and queueing child
@@ -485,7 +498,12 @@ impl Scanner {
                         };
 
                         if matches(name) {
-                            out.paths.push(join_path(dir_path, name));
+                            out.hits.push(Hit {
+                                path: join_path(dir_path, name),
+                                inode: child,
+                                size: 0,
+                                mtime: 0,
+                            });
                         }
                         if is_dir && child != ROOT_INO && child <= self.geo.inodes_count {
                             out.frontier.push((child, join_path(dir_path, name)));
@@ -576,6 +594,48 @@ impl Scanner {
         self.inode_reads.fetch_add(1, Ordering::Relaxed);
         self.bytes_read.fetch_add(buf.len() as u64, Ordering::Relaxed);
         Ok(())
+    }
+
+    /// Read the inodes behind `hits` and fill in their size and mtime.
+    ///
+    /// Only called when the requested sort key needs it, so an ordinary
+    /// path-sorted search never pays for it. The reads go through the same
+    /// parallel path as the scan, and entries from one directory tend to have
+    /// neighbouring inodes, so many of these land in the same block.
+    pub fn fill_metadata(&self, hits: &mut [Hit]) -> Result<()> {
+        let inode_size = self.geo.inode_size as usize;
+
+        let mut offsets = Vec::new();
+        let mut targets = Vec::new();
+        for (i, hit) in hits.iter().enumerate() {
+            if let Some(offset) = self.inode_offset_checked(hit.inode) {
+                offsets.push(offset);
+                targets.push(i);
+            }
+        }
+        if offsets.is_empty() {
+            return Ok(());
+        }
+
+        let mut arena = vec![0u8; offsets.len() * inode_size];
+        self.read_many(&offsets, inode_size, &mut arena)?;
+        self.inode_reads.fetch_add(offsets.len() as u64, Ordering::Relaxed);
+
+        for (k, &i) in targets.iter().enumerate() {
+            let inode = &arena[k * inode_size..(k + 1) * inode_size];
+            hits[i].size =
+                le32(inode, INO_SIZE_LO) as u64 | (le32(inode, INO_SIZE_HIGH) as u64) << 32;
+            hits[i].mtime = le32(inode, INO_MTIME);
+        }
+        Ok(())
+    }
+
+    /// Byte offset of an inode, or `None` when the inode number is out of range.
+    fn inode_offset_checked(&self, ino: u32) -> Option<u64> {
+        if ino == 0 || ino > self.geo.inodes_count {
+            return None;
+        }
+        Some(self.inode_offset(ino))
     }
 
     /// Byte offset of an inode. The caller guarantees the inode is in range.
