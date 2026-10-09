@@ -170,6 +170,7 @@ mod tests {
         Hit {
             path: path.as_bytes().to_vec(),
             inode: 1,
+            is_dir: false,
             size,
             mtime,
         }

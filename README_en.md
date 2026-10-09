@@ -54,6 +54,9 @@ $ sudo wis -s size desc -n 10 '\.log$'   # the 10 biggest logs
 
 Results go to stdout, one path per line; the summary goes to stderr, so piping
 stdout is clean.
+Directories are shown in blue on a terminal; pipes, redirects, `NO_COLOR` and
+`TERM=dumb` get plain paths, and the path itself is never altered or given a
+trailing slash.
 
 When a run would print more than 1000 lines, the first 1000 go to stdout and a
 question on stderr asks whether to continue; only `y` prints the rest. The

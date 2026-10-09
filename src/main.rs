@@ -26,6 +26,11 @@ const DEFAULT_THREADS: usize = 16;
 /// scripts always get the full output.
 const PROMPT_AFTER: usize = 1000;
 
+/// GNU ls's default directory colour. It is only ever written when stdout is a
+/// terminal and `NO_COLOR` is unset, so pipes stay byte-clean.
+const COLOR_DIR: &[u8] = b"\x1b[1;34m";
+const COLOR_RESET: &[u8] = b"\x1b[0m";
+
 struct Args {
     name: String,
     device: Option<PathBuf>,
@@ -114,6 +119,9 @@ fn run(argv: &[String]) -> Result<()> {
     }
 
     let stdout = io::stdout();
+    let no_color = std::env::var_os("NO_COLOR").is_some_and(|value| !value.is_empty());
+    let dumb_terminal = std::env::var("TERM").is_ok_and(|value| value == "dumb");
+    let color = stdout.is_terminal() && !no_color && !dumb_terminal;
     let interactive = !args.quiet
         && io::stdin().is_terminal()
         && io::stderr().is_terminal()
@@ -130,10 +138,7 @@ fn run(argv: &[String]) -> Result<()> {
                 break;
             }
         }
-        out.write_all(&hit.path)
-            .map_err(|e| Error::io(i18n::t!(io_write_stdout), e))?;
-        out.write_all(b"\n")
-            .map_err(|e| Error::io(i18n::t!(io_write_stdout), e))?;
+        write_path(&mut out, hit, color).map_err(|e| Error::io(i18n::t!(io_write_stdout), e))?;
         printed += 1;
     }
     out.flush()
@@ -271,6 +276,20 @@ fn parse_args(argv: &[String]) -> Result<Args> {
     })
 }
 
+/// Write one result line, colouring directories when the terminal asked for it.
+/// The path bytes themselves are never altered: no trailing slash, and no escape
+/// sequences at all on a pipe.
+fn write_path(out: &mut impl Write, hit: &ext4::Hit, color: bool) -> io::Result<()> {
+    if color && hit.is_dir {
+        out.write_all(COLOR_DIR)?;
+        out.write_all(&hit.path)?;
+        out.write_all(COLOR_RESET)?;
+    } else {
+        out.write_all(&hit.path)?;
+    }
+    out.write_all(b"\n")
+}
+
 /// Once [`PROMPT_AFTER`] lines are on screen, ask whether to keep going. Only a
 /// yes continues; end of input or a read error counts as no.
 fn confirm_continue(shown: usize, remaining: usize) -> bool {
@@ -367,5 +386,29 @@ mod tests {
         let args = parse_args(&["--path".into(), "/var".into(), "name".into()]).unwrap();
         assert_eq!(args.path.as_deref(), Some("/var"));
         assert!(parse_args(&["name".into()]).unwrap().path.is_none());
+    }
+
+    #[test]
+    fn only_directories_are_coloured() {
+        let dir = ext4::Hit {
+            path: b"/etc".to_vec(),
+            inode: 1,
+            is_dir: true,
+            size: 0,
+            mtime: 0,
+        };
+        let file = ext4::Hit {
+            path: b"/etc/passwd".to_vec(),
+            inode: 2,
+            is_dir: false,
+            size: 0,
+            mtime: 0,
+        };
+
+        let mut out = Vec::new();
+        write_path(&mut out, &dir, true).unwrap();
+        write_path(&mut out, &file, true).unwrap();
+        write_path(&mut out, &dir, false).unwrap();
+        assert_eq!(out, b"\x1b[1;34m/etc\x1b[0m\n/etc/passwd\n/etc\n");
     }
 }

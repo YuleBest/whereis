@@ -147,12 +147,13 @@ pub struct ScanResult {
 
 /// One matched entry.
 ///
-/// `size` and `mtime` stay zero during the scan: the walk only reads *directory*
-/// inodes, so a matched entry's own metadata is not known until it is asked for
-/// with [`Scanner::fill_metadata`].
+/// Whether the entry is a directory is always known: directory entries carry
+/// their type. `size` and `mtime` stay zero during the scan, because the walk
+/// only reads *directory* inodes.
 pub struct Hit {
     pub path: Vec<u8>,
     pub inode: u32,
+    pub is_dir: bool,
     pub size: u64,
     pub mtime: u32,
 }
@@ -536,6 +537,7 @@ impl Scanner {
                             out.hits.push(Hit {
                                 path: join_path(dir_path, name),
                                 inode: child,
+                                is_dir,
                                 size: 0,
                                 mtime: 0,
                             });
