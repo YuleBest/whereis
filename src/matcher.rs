@@ -6,6 +6,7 @@
 use regex::bytes::{Regex, RegexBuilder};
 
 use crate::error::{Error, Result};
+use crate::i18n;
 
 pub enum Matcher {
     /// Case-insensitive substring. The needle is stored pre-lowercased.
@@ -36,6 +37,68 @@ impl Matcher {
             Matcher::Regex(re) => re.is_match(name),
         }
     }
+}
+
+/// Restricting a scan to part of the directory tree.
+///
+/// Without `--regex` the path is a literal absolute directory and only entries
+/// strictly below it are searched. With `--regex` it is a regex matched against
+/// directory paths, and every directory it matches is searched recursively.
+/// Paths are interpreted on the on-disk tree: symlinks are never followed.
+pub enum PathFilter {
+    Literal(Vec<u8>),
+    Regex(Matcher),
+}
+
+impl PathFilter {
+    pub fn literal(path: &str) -> Result<Self> {
+        if !path.starts_with('/') {
+            return Err(Error::usage(i18n::t!(err_bad_path, value = path)));
+        }
+        let mut trimmed = path;
+        while trimmed.len() > 1 && trimmed.ends_with('/') {
+            trimmed = &trimmed[..trimmed.len() - 1];
+        }
+        Ok(PathFilter::Literal(trimmed.as_bytes().to_vec()))
+    }
+
+    pub fn regex(pattern: &str) -> Result<Self> {
+        Ok(PathFilter::Regex(Matcher::regex(pattern)?))
+    }
+
+    /// Whether this directory's own entries are inside the scope.
+    pub fn is_scope(&self, dir: &[u8]) -> bool {
+        match self {
+            PathFilter::Literal(root) => dir == root.as_slice(),
+            PathFilter::Regex(matcher) => matcher.is_match(dir),
+        }
+    }
+
+    /// Classify a child directory of a directory whose scope is `parent_scoped`:
+    /// whether the child and its entries are in scope, and whether the walk has
+    /// to enter it at all. A literal path prunes whole subtrees for free; a regex
+    /// cannot, because it may match anywhere.
+    pub fn enter(&self, parent_scoped: bool, dir: &[u8]) -> (bool, bool) {
+        if parent_scoped {
+            return (true, true);
+        }
+        match self {
+            PathFilter::Literal(root) => {
+                let scoped = dir == root.as_slice();
+                (scoped, scoped || is_ancestor(dir, root))
+            }
+            PathFilter::Regex(matcher) => (matcher.is_match(dir), true),
+        }
+    }
+}
+
+/// Whether `dir` is a proper ancestor of `target`, comparing whole components so
+/// `/etc` is never an ancestor of `/etcother`.
+fn is_ancestor(dir: &[u8], target: &[u8]) -> bool {
+    if dir == b"/" {
+        return target != b"/";
+    }
+    target.len() > dir.len() && target.starts_with(dir) && target[dir.len()] == b'/'
 }
 
 /// Case-insensitive substring search. `needle` must already be lowercased.
@@ -108,5 +171,44 @@ mod tests {
     #[test]
     fn bad_regex_is_reported() {
         assert!(Matcher::regex("a(b").is_err());
+    }
+
+    #[test]
+    fn literal_path_filter_scopes_and_prunes() {
+        let f = PathFilter::literal("/etc").unwrap();
+        assert!(!f.is_scope(b"/"));
+        assert!(f.is_scope(b"/etc"));
+        assert!(!f.is_scope(b"/etc/nginx"));
+        assert_eq!(f.enter(false, b"/"), (false, true));
+        assert_eq!(f.enter(false, b"/etc"), (true, true));
+        assert_eq!(f.enter(false, b"/etc/nginx"), (false, false));
+        assert_eq!(f.enter(true, b"/etc/nginx"), (true, true));
+        assert_eq!(f.enter(false, b"/etcother"), (false, false));
+        assert_eq!(f.enter(false, b"/lost+found"), (false, false));
+        assert_eq!(f.enter(true, b"/anything"), (true, true));
+    }
+
+    #[test]
+    fn literal_path_filter_normalizes_and_requires_absolute() {
+        let f = PathFilter::literal("/var/log///").unwrap();
+        assert!(f.is_scope(b"/var/log"));
+        assert!(!f.is_scope(b"/"));
+
+        let root = PathFilter::literal("/").unwrap();
+        assert!(root.is_scope(b"/"));
+
+        assert!(PathFilter::literal("var/log").is_err());
+        assert!(PathFilter::literal("").is_err());
+    }
+
+    #[test]
+    fn regex_path_filter_matches_directories_but_keeps_walking() {
+        let f = PathFilter::regex(r"^/var/(log|tmp)$").unwrap();
+        assert_eq!(f.enter(false, b"/var"), (false, true));
+        assert_eq!(f.enter(false, b"/var/log"), (true, true));
+        assert_eq!(f.enter(false, b"/usr"), (false, true));
+        // Once a directory matched, its descendants stay in scope.
+        assert_eq!(f.enter(true, b"/var/log/nginx"), (true, true));
+        assert!(f.is_scope(b"/var/tmp"));
     }
 }

@@ -12,7 +12,7 @@ use std::time::Instant;
 
 use error::{Error, Result};
 use i18n::Lang;
-use matcher::Matcher;
+use matcher::{Matcher, PathFilter};
 use sort::{SortDir, SortKey};
 
 /// The scan is bound by device latency rather than by CPU, so this sits well
@@ -29,6 +29,7 @@ const PROMPT_AFTER: usize = 1000;
 struct Args {
     name: String,
     device: Option<PathBuf>,
+    path: Option<String>,
     threads: Option<usize>,
     regex: bool,
     limit: Option<usize>,
@@ -90,9 +91,14 @@ fn run(argv: &[String]) -> Result<()> {
     } else {
         Matcher::substring(&args.name)
     };
+    let path_filter = match &args.path {
+        Some(value) if args.regex => Some(PathFilter::regex(value)?),
+        Some(value) => Some(PathFilter::literal(value)?),
+        None => None,
+    };
 
     let started = Instant::now();
-    let result = scanner.scan(|name| matcher.is_match(name))?;
+    let result = scanner.scan(|name| matcher.is_match(name), path_filter.as_ref())?;
     let mut hits = result.hits;
 
     // Only pay for inode reads when the requested key actually needs them.
@@ -163,6 +169,7 @@ fn run(argv: &[String]) -> Result<()> {
 fn parse_args(argv: &[String]) -> Result<Args> {
     let mut name: Option<String> = None;
     let mut device: Option<PathBuf> = None;
+    let mut path: Option<String> = None;
     let mut threads: Option<usize> = None;
     let mut regex = false;
     let mut clean = false;
@@ -189,6 +196,9 @@ fn parse_args(argv: &[String]) -> Result<Args> {
             "-q" | "--quiet" => quiet = true,
             "-d" | "--device" => {
                 device = Some(PathBuf::from(value_of(argv, &mut i, "--device")?));
+            }
+            "-p" | "--path" => {
+                path = Some(value_of(argv, &mut i, "--path")?);
             }
             "-n" | "--limit" => {
                 let value = value_of(argv, &mut i, "--limit")?;
@@ -250,6 +260,7 @@ fn parse_args(argv: &[String]) -> Result<Args> {
     Ok(Args {
         name,
         device,
+        path,
         threads,
         regex,
         limit,
@@ -347,5 +358,14 @@ mod tests {
                 .quiet
         );
         assert!(!parse_args(&["name".into()]).unwrap().quiet);
+    }
+
+    #[test]
+    fn path_option_is_parsed() {
+        let args = parse_args(&["-p".into(), "/etc".into(), "name".into()]).unwrap();
+        assert_eq!(args.path.as_deref(), Some("/etc"));
+        let args = parse_args(&["--path".into(), "/var".into(), "name".into()]).unwrap();
+        assert_eq!(args.path.as_deref(), Some("/var"));
+        assert!(parse_args(&["name".into()]).unwrap().path.is_none());
     }
 }

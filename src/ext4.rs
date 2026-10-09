@@ -40,6 +40,7 @@ use std::sync::Mutex;
 
 use crate::error::{Error, Result};
 use crate::i18n;
+use crate::matcher::PathFilter;
 
 // ---------------------------------------------------------------- constants
 
@@ -168,9 +169,12 @@ struct DirWork {
 /// What the parse phase accumulates.
 struct ParseOut<'a> {
     hits: &'a mut Vec<Hit>,
-    frontier: &'a mut Vec<(u32, Vec<u8>)>,
+    frontier: &'a mut Vec<(u32, Vec<u8>, bool)>,
     stats: &'a mut Stats,
     child_inode: &'a mut [u8],
+    /// Whether this directory's entries are inside the requested subtree.
+    in_scope: bool,
+    path_filter: Option<&'a PathFilter>,
 }
 
 // ------------------------------------------------------------------ scanner
@@ -338,15 +342,17 @@ impl Scanner {
 
     /// Walk the tree from the root directory, calling `matches` on every file
     /// name and collecting the full paths of the ones it accepts.
-    pub fn scan<F>(&self, matches: F) -> Result<ScanResult>
+    pub fn scan<F>(&self, matches: F, path_filter: Option<&PathFilter>) -> Result<ScanResult>
     where
         F: Fn(&[u8]) -> bool,
     {
         let block_size = self.geo.block_size as usize;
         let inode_size = self.geo.inode_size as usize;
 
-        // Directories still to visit. Each carries its own full path.
-        let mut frontier: Vec<(u32, Vec<u8>)> = vec![(ROOT_INO, b"/".to_vec())];
+        // Directories still to visit. Each carries its own full path and whether
+        // its entries are inside the requested subtree.
+        let root_scoped = path_filter.map_or(true, |filter| filter.is_scope(b"/"));
+        let mut frontier: Vec<(u32, Vec<u8>, bool)> = vec![(ROOT_INO, b"/".to_vec(), root_scoped)];
         let mut hits: Vec<Hit> = Vec::new();
         let mut stats = Stats::default();
 
@@ -361,7 +367,7 @@ impl Scanner {
         while !frontier.is_empty() {
             let take = frontier.len().min(BATCH_DIRS);
             let mut batch = frontier.split_off(frontier.len() - take);
-            batch.retain(|(ino, _)| *ino != 0 && *ino <= self.geo.inodes_count);
+            batch.retain(|(ino, _, _)| *ino != 0 && *ino <= self.geo.inodes_count);
             if batch.is_empty() {
                 continue;
             }
@@ -375,7 +381,7 @@ impl Scanner {
                 inode_arena.resize(inode_need, 0);
             }
             offsets.clear();
-            offsets.extend(batch.iter().map(|(ino, _)| self.inode_offset(*ino)));
+            offsets.extend(batch.iter().map(|(ino, _, _)| self.inode_offset(*ino)));
             self.read_many(&offsets, inode_size, &mut inode_arena[..inode_need])?;
             self.inode_reads
                 .fetch_add(batch.len() as u64, Ordering::Relaxed);
@@ -449,6 +455,8 @@ impl Scanner {
                         frontier: &mut frontier,
                         stats: &mut stats,
                         child_inode: &mut child_inode,
+                        in_scope: batch[w.batch_index].2,
+                        path_filter,
                     };
                     self.parse_directory(
                         &batch[w.batch_index].1,
@@ -483,6 +491,8 @@ impl Scanner {
         F: Fn(&[u8]) -> bool,
     {
         let block_size = self.geo.block_size as usize;
+        let in_scope = out.in_scope;
+        let path_filter = out.path_filter;
         let mut remaining = size;
 
         for block in data.chunks_exact(block_size) {
@@ -522,7 +532,7 @@ impl Scanner {
                             _ => false,
                         };
 
-                        if matches(name) {
+                        if in_scope && matches(name) {
                             out.hits.push(Hit {
                                 path: join_path(dir_path, name),
                                 inode: child,
@@ -531,7 +541,14 @@ impl Scanner {
                             });
                         }
                         if is_dir && child != ROOT_INO && child <= self.geo.inodes_count {
-                            out.frontier.push((child, join_path(dir_path, name)));
+                            let child_path = join_path(dir_path, name);
+                            let (scoped, descend) = match path_filter {
+                                Some(filter) => filter.enter(in_scope, &child_path),
+                                None => (true, true),
+                            };
+                            if descend {
+                                out.frontier.push((child, child_path, scoped));
+                            }
                         }
                     }
                 }

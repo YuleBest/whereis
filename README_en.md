@@ -39,6 +39,7 @@ with `-r` it is a regular expression.
 | `-n`, `--limit <N>` | Print at most N results, applied after sorting |
 | `-s`, `--sort <KEY> [DIR]` | Sort by `path` (default), `name`, `ext`, `size` or `mtime`; direction `asc` (default) or `desc` |
 | `-d`, `--device <PATH>` | Scan this block device instead of the filesystem mounted at `/` |
+| `-p`, `--path <PATH>` | Only search inside this absolute directory; with `-r`, PATH is a regular expression and every matching directory is searched recursively |
 | `-j`, `--threads <N>` | Concurrent metadata reads to keep in flight (default 16) |
 | `--lang <LANG>` | Force the output language: `zh-Hans`, `zh-Hant`, `en` |
 | `-c`, `--clean` | Suppress the summary line on stderr |
@@ -73,7 +74,8 @@ environment.
 * No index cache — every invocation rescans from scratch.
 * Patterns apply to the file name only; there is no glob matching.
 * Mount points are transparent to the scan: content hidden beneath one is still
-  found.
+  found. `--path` is interpreted on the on-disk tree too and does not resolve
+  symlinks.
 
 Details in the [design notes](docs/design_en.md).
 
