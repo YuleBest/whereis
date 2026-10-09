@@ -1,5 +1,6 @@
 mod error;
 mod ext4;
+mod format;
 mod history;
 mod i18n;
 mod listing;
@@ -17,6 +18,7 @@ use std::time::Instant;
 
 use error::{Error, Result};
 use ext4::{EntryKind, Hit, TypeFilter};
+use format::Format;
 use i18n::Lang;
 use listing::{LineSpec, Names};
 use logical::Query;
@@ -48,6 +50,7 @@ struct Args {
     types: Option<TypeFilter>,
     line: Option<String>,
     base: Option<usize>,
+    format: Format,
     threads: Option<usize>,
     regex: bool,
     logical: bool,
@@ -169,10 +172,15 @@ fn run(argv: &[String]) -> Result<()> {
         hits.truncate(limit);
     }
 
+    let format = args.format;
     let mut names = Names::default();
-    let widths = line_spec
-        .as_ref()
-        .map(|spec| listing::measure(spec, &hits, &mut names));
+    let widths = if format == Format::Text {
+        line_spec
+            .as_ref()
+            .map(|spec| listing::measure(spec, &hits, &mut names))
+    } else {
+        None
+    };
 
     let stdout = io::stdout();
     let no_color = std::env::var_os("NO_COLOR").is_some_and(|value| !value.is_empty());
@@ -183,6 +191,10 @@ fn run(argv: &[String]) -> Result<()> {
         && io::stderr().is_terminal()
         && stdout.is_terminal();
     let mut out = io::BufWriter::new(stdout.lock());
+    if format == Format::Json && !hits.is_empty() {
+        out.write_all(b"[\n")
+            .map_err(|e| Error::io(i18n::t!(io_write_stdout), e))?;
+    }
     let mut printed = 0usize;
     let mut stopped = false;
     for hit in &hits {
@@ -194,13 +206,38 @@ fn run(argv: &[String]) -> Result<()> {
                 break;
             }
         }
-        if let (Some(spec), Some(widths)) = (&line_spec, &widths) {
-            listing::write_row(&mut out, spec, widths, hit, &mut names)
-                .map_err(|e| Error::io(i18n::t!(io_write_stdout), e))?;
-        }
-        write_path(&mut out, hit, color, &terms)
-            .map_err(|e| Error::io(i18n::t!(io_write_stdout), e))?;
+        let written = (|| -> io::Result<()> {
+            match format {
+                Format::Text => {
+                    if let (Some(spec), Some(widths)) = (&line_spec, &widths) {
+                        listing::write_row(&mut out, spec, widths, hit, &mut names)?;
+                    }
+                    write_path(&mut out, hit, color, &terms)
+                }
+                Format::Json => {
+                    if printed > 0 {
+                        out.write_all(b",\n")?;
+                    }
+                    out.write_all(b"  ")?;
+                    format::write_json_object(&mut out, line_spec.as_ref(), hit, &mut names)
+                }
+                Format::Jsonl => {
+                    format::write_json_object(&mut out, line_spec.as_ref(), hit, &mut names)?;
+                    out.write_all(b"\n")
+                }
+                Format::Tsv | Format::Csv => {
+                    format::write_delimited(&mut out, format, line_spec.as_ref(), hit, &mut names)?;
+                    out.write_all(b"\n")
+                }
+            }
+        })();
+        written.map_err(|e| Error::io(i18n::t!(io_write_stdout), e))?;
         printed += 1;
+    }
+    if format == Format::Json {
+        let close: &[u8] = if hits.is_empty() { b"[]\n" } else { b"\n]\n" };
+        out.write_all(close)
+            .map_err(|e| Error::io(i18n::t!(io_write_stdout), e))?;
     }
     out.flush()
         .map_err(|e| Error::io(i18n::t!(io_flush_stdout), e))?;
@@ -240,6 +277,7 @@ fn parse_args(argv: &[String]) -> Result<Args> {
     let mut type_given = false;
     let mut line: Option<String> = None;
     let mut base: Option<usize> = None;
+    let mut format = Format::Text;
     let mut threads: Option<usize> = None;
     let mut regex = false;
     let mut logical = false;
@@ -291,6 +329,10 @@ fn parse_args(argv: &[String]) -> Result<Args> {
             }
             "--line" => {
                 line = Some(value_of(argv, &mut i, "--line")?);
+            }
+            "--format" => {
+                let value = value_of(argv, &mut i, "--format")?;
+                format = Format::parse(&value)?;
             }
             "-b" | "--base" => {
                 let value = value_of(argv, &mut i, "--base")?;
@@ -368,6 +410,7 @@ fn parse_args(argv: &[String]) -> Result<Args> {
         }),
         line,
         base,
+        format,
         threads,
         regex,
         logical,
@@ -615,6 +658,14 @@ mod tests {
         assert_eq!(args.names.len(), 2);
 
         assert!(parse_args(&["-l".into()]).is_err());
+    }
+
+    #[test]
+    fn format_option_is_parsed() {
+        let args = parse_args(&["--format".into(), "jsonl".into(), "name".into()]).unwrap();
+        assert_eq!(args.format, Format::Jsonl);
+        assert_eq!(parse_args(&["name".into()]).unwrap().format, Format::Text);
+        assert!(parse_args(&["--format".into(), "xml".into(), "name".into()]).is_err());
     }
 
     #[test]

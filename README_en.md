@@ -48,6 +48,7 @@ name is parsed as a logical expression.
 | `-t`, `--type <TYPE>[,TYPE2]...` | Search only the given types, comma-separated or repeated: `file`/`f` and `directory`/`d`; no filtering when omitted |
 | `-b`, `--base <NUM>` | Search only inside an earlier result set; NUM counts back from the most recent record, `1` being the last search, up to `10` |
 | `--line <FIELDS>` | Columns before the path and their order, comma-separated: `mode`, `mtime`, `size[=auto\|b\|k\|m\|g\|t]`, `user`, `group`, `nlink` (default `mode,mtime,size`) |
+| `--format <FORMAT>` | Output format: `text` (default), `json`, `jsonl`, `tsv` or `csv`; structured formats carry the `--line` fields |
 | `-j`, `--threads <N>` | Concurrent metadata reads to keep in flight (default 16) |
 | `--lang <LANG>` | Force the output language: `zh-Hans`, `zh-Hant`, `en` |
 | `-c`, `--clean` | Print bare paths only: no columns, no summary (`--line` is ignored) |
@@ -91,6 +92,19 @@ example `--line user,group,nlink,size=k,mtime`; column order is display order an
 result sorting is still `-s`. User and group names are resolved through the
 system NSS, falling back to numbers. The summary goes to stderr only, so stdout
 carries nothing but results.
+
+### Output formats
+
+`--format` accepts `text` (default), `json`, `jsonl`, `tsv` and `csv`. Structured
+formats carry the `--line` fields in order and the path last; with `-c` only the
+path remains. Values render exactly as in text mode and every JSON value is a
+string; CSV follows RFC 4180 quoting, and TSV escapes tabs, newlines and
+backslashes as `\t`, `\n` and `\\`. Colour and highlighting are text-only.
+
+```console
+$ sudo wis --format jsonl --line mode,size=b '\.log$'
+{"mode":"0644","size":"1536B","path":"/var/log/x.log"}
+```
 
 Directories are blue on a terminal and the parts of the name that matched the
 query are highlighted in red; pipes, redirects, `NO_COLOR` and `TERM=dumb` get no

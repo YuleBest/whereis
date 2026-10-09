@@ -43,6 +43,7 @@ wis [选项] <名称>...
 | `-t`, `--type <类型>[,类型2]...` | 只搜索指定类型，逗号分隔或重复给出；`file`/`f` 指普通文件，`directory`/`d` 指目录；不指定则不过滤 |
 | `-b`, `--base <序号>` | 只在该历史记录的结果集里搜索；序号从最近一条往前走，`1` 是最近一次，最多 `10` |
 | `--line <字段>[,字段2]...` | 自定义路径前的列及其顺序，逗号分隔：`mode`、`mtime`、`size[=auto\|b\|k\|m\|g\|t]`、`user`、`group`、`nlink`（默认 `mode,mtime,size`） |
+| `--format <格式>` | 输出格式：`text`（默认）、`json`、`jsonl`、`tsv`、`csv`；结构化格式的字段跟随 `--line` |
 | `-j`, `--threads <N>` | 并发读取数，默认 16 |
 | `--lang <语言>` | 强制输出语言：`zh-Hans`、`zh-Hant`、`en` |
 | `-c`, `--clean` | 只输出纯路径，不显示列和统计信息（优先于 `--line`） |
@@ -81,6 +82,18 @@ $ sudo wis sshd_config
 `-c` 只输出纯路径。`--line` 可以自定义列及其顺序，例如
 `--line user,group,nlink,size=k,mtime`；列顺序即显示顺序，结果排序仍由 `-s` 控制。
 用户名和组名通过系统 NSS 解析，查不到时显示数字。统计信息只走 stderr，stdout 不混杂状态输出。
+
+### 输出格式
+
+`--format` 可选 `text`（默认）、`json`、`jsonl`、`tsv`、`csv`。结构化格式的字段跟随
+`--line`，顺序一致，最后是 `path`；`-c` 时只输出路径。字段值与 text 模式一致，JSON 中
+所有值都是字符串；CSV 按 RFC 4180 引号转义，TSV 把 Tab、换行和反斜杠写成 `\t`、`\n`、
+`\\`。颜色和高亮只出现在 `text`。
+
+```console
+$ sudo wis --format jsonl --line mode,size=b '\.log$'
+{"mode":"0644","size":"1536B","path":"/var/log/x.log"}
+```
 
 目录名在终端上显示为蓝色，命中的搜索词高亮为红色；管道、重定向、设置了 `NO_COLOR`
 或 `TERM=dumb` 时不着色。路径本身不会改变，也不会追加尾随斜杠。

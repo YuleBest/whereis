@@ -36,6 +36,18 @@ pub enum SizeUnit {
     T,
 }
 
+/// The name of a column, used as the key of structured output.
+pub fn field_name(field: &Field) -> &'static str {
+    match field {
+        Field::Mode => "mode",
+        Field::Mtime => "mtime",
+        Field::Size(_) => "size",
+        Field::User => "user",
+        Field::Group => "group",
+        Field::Nlink => "nlink",
+    }
+}
+
 /// The parsed `--line` value.
 #[derive(Debug, Clone)]
 pub struct LineSpec {
@@ -243,7 +255,8 @@ fn write_spaces(out: &mut impl Write, mut count: usize) -> io::Result<()> {
     Ok(())
 }
 
-fn render(field: &Field, hit: &Hit, names: &mut Names, out: &mut String) {
+/// Render one column into `out`, without padding or colours.
+pub fn render(field: &Field, hit: &Hit, names: &mut Names, out: &mut String) {
     out.clear();
     match field {
         Field::Mode => {

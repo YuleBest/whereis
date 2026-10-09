@@ -133,6 +133,7 @@ pub struct Text {
     pub err_threads_min: &'static str,
     pub err_unknown_sort_key: &'static str,
     pub err_unknown_lang: &'static str,
+    pub err_unknown_format: &'static str,
     pub err_bad_path: &'static str,
     pub err_unknown_type: &'static str,
     pub err_unknown_line_field: &'static str,
@@ -375,6 +376,13 @@ static EN: Text = Text {
              system NSS and fall back to numbers.",
         ),
         (
+            "--format <FORMAT>",
+            "Output format: text (default), json, jsonl, tsv or csv.\n\
+             \n\
+             Structured formats write the --line fields in order and the path\n\
+             last; -c leaves only the path. Colours are text-only.",
+        ),
+        (
             "-j, --threads <N>",
             "Concurrent metadata reads (default 16; the scan is\n\
              latency-bound, not CPU-bound).",
@@ -420,6 +428,7 @@ static EN: Text = Text {
     err_threads_min: "--threads must be at least 1",
     err_unknown_sort_key: "unknown sort key `{key}` (expected one of: {keys})",
     err_unknown_lang: "unknown language `{value}` (expected one of: {langs})",
+    err_unknown_format: "unknown format `{format}` (expected one of: {formats})",
     err_bad_path: "`{value}` is not an absolute path",
     err_unknown_type: "unknown type `{value}` (expected one of: {types})",
     err_unknown_line_field: "unknown line field `{field}` (expected one of: {fields})",
@@ -555,6 +564,13 @@ static ZH_HANS: Text = Text {
              user、group 通过系统 NSS 解析，查不到时显示数字。",
         ),
         (
+            "--format <格式>",
+            "输出格式：text（默认）、json、jsonl、tsv 或 csv。\n\
+             \n\
+             结构化格式按 --line 的字段顺序输出，最后是路径；-c 时只有路径。\n\
+             颜色和高亮只在 text 下出现。",
+        ),
+        (
             "-j, --threads <N>",
             "并发读取数（默认 16；扫描受设备延迟限制，而非 CPU）。",
         ),
@@ -593,6 +609,7 @@ static ZH_HANS: Text = Text {
     err_threads_min: "--threads 至少为 1",
     err_unknown_sort_key: "未知的排序键 `{key}`（可选：{keys}）",
     err_unknown_lang: "未知的语言 `{value}`（可选：{langs}）",
+    err_unknown_format: "未知的输出格式 `{format}`（可选：{formats}）",
     err_bad_path: "`{value}` 不是绝对路径",
     err_unknown_type: "未知的类型 `{value}`（可选：{types}）",
     err_unknown_line_field: "未知的输出列 `{field}`（可选：{fields}）",
@@ -725,6 +742,13 @@ static ZH_HANT: Text = Text {
              user、group 透過系統 NSS 解析，查不到時顯示數字。",
         ),
         (
+            "--format <格式>",
+            "輸出格式：text（預設）、json、jsonl、tsv 或 csv。\n\
+             \n\
+             結構化格式依 --line 的欄位順序輸出，最後是路徑；-c 時只有路徑。\n\
+             顏色與高亮只在 text 下出現。",
+        ),
+        (
             "-j, --threads <N>",
             "並行讀取數（預設 16；掃描受裝置延遲限制，而非 CPU）。",
         ),
@@ -763,6 +787,7 @@ static ZH_HANT: Text = Text {
     err_threads_min: "--threads 至少為 1",
     err_unknown_sort_key: "未知的排序鍵 `{key}`（可選：{keys}）",
     err_unknown_lang: "未知的語言 `{value}`（可選：{langs}）",
+    err_unknown_format: "未知的輸出格式 `{format}`（可選：{formats}）",
     err_bad_path: "`{value}` 不是絕對路徑",
     err_unknown_type: "未知的類型 `{value}`（可選：{types}）",
     err_unknown_line_field: "未知的輸出欄位 `{field}`（可選：{fields}）",
@@ -865,6 +890,7 @@ mod tests {
                 text.err_threads_min,
                 text.err_unknown_sort_key,
                 text.err_unknown_lang,
+                text.err_unknown_format,
                 text.err_bad_path,
                 text.err_unknown_type,
                 text.err_unknown_line_field,
@@ -956,7 +982,7 @@ mod tests {
             found
         }
 
-        let pairs: [(&str, &str, &str); 31] = [
+        let pairs: [(&str, &str, &str); 32] = [
             (EN.summary, ZH_HANS.summary, ZH_HANT.summary),
             (EN.matches_all, ZH_HANS.matches_all, ZH_HANT.matches_all),
             (
@@ -1013,6 +1039,11 @@ mod tests {
                 EN.err_unknown_lang,
                 ZH_HANS.err_unknown_lang,
                 ZH_HANT.err_unknown_lang,
+            ),
+            (
+                EN.err_unknown_format,
+                ZH_HANS.err_unknown_format,
+                ZH_HANT.err_unknown_format,
             ),
             (EN.err_bad_path, ZH_HANS.err_bad_path, ZH_HANT.err_bad_path),
             (
@@ -1114,6 +1145,7 @@ mod tests {
                 "--path",
                 "--type",
                 "--line",
+                "--format",
                 "--threads",
                 "--lang",
                 "--clean",
