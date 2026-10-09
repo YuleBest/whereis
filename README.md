@@ -16,6 +16,9 @@
 cargo build --release     # 产物：target/release/wis
 ```
 
+也可以从 [GitHub Releases](https://github.com/YuleBest/whereis/releases) 直接下载静态二进制
+（x86_64 或 arm64，下载后先 `chmod +x`）或 `.deb` 安装包。
+
 包名是 `whereis`，安装出来的命令却叫 `wis`：`/usr/bin/whereis` 已被 util-linux 的同名工具占用，
 同名安装会把它遮蔽。这与 ripgrep 的安排一致——包名 `ripgrep`，命令 `rg`。
 

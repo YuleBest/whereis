@@ -18,6 +18,9 @@ takes about 0.1 s.
 cargo build --release     # produces target/release/wis
 ```
 
+Prebuilt static binaries (x86_64 and arm64, `chmod +x` after downloading) and
+`.deb` packages are on [GitHub Releases](https://github.com/YuleBest/whereis/releases).
+
 The package is called `whereis` but the command it installs is `wis`:
 `/usr/bin/whereis` is already util-linux's binary-location tool, and installing
 under that name would silently shadow it. Same arrangement as ripgrep, whose

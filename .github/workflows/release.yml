@@ -11,16 +11,21 @@ permissions:
 jobs:
   build:
     name: build ${{ matrix.target }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Static musl, so the binary does not depend on the glibc of whatever
-          # runner built it. Add targets here as needed; the packaging step is
-          # target-agnostic.
+          # Static musl, so the binaries do not depend on the glibc of whatever
+          # runner built them. The arm64 runner is available because the
+          # repository is public.
           - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            deb_arch: amd64
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+            deb_arch: arm64
     steps:
       - uses: actions/checkout@v4
 
@@ -45,20 +50,38 @@ jobs:
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }}
 
-      - name: Package
+      - name: Package binary and deb
         run: |
           version="${GITHUB_REF_NAME#v}"
-          mkdir -p dist
-          # Set the ownership explicitly, or extracting as root leaves the CI
-          # runner's uid on the installed binary.
-          tar -C "target/${{ matrix.target }}/release" --owner=root --group=root \
-            -czf "dist/wis-${version}-${{ matrix.target }}.tar.gz" wis
+          maintainer="$(git log -1 --format='%an <%ae>')"
+          mkdir -p dist/pkg/usr/bin dist/pkg/DEBIAN
+          install -m 0755 "target/${{ matrix.target }}/release/wis" \
+            "dist/wis-${version}-${{ matrix.target }}"
+          install -m 0755 "target/${{ matrix.target }}/release/wis" dist/pkg/usr/bin/wis
+          installed="$(du -sk dist/pkg/usr | cut -f1)"
+          {
+            echo "Package: wis"
+            echo "Version: ${version}"
+            echo "Architecture: ${{ matrix.deb_arch }}"
+            echo "Maintainer: ${maintainer}"
+            echo "Installed-Size: ${installed}"
+            echo "Section: utils"
+            echo "Priority: optional"
+            echo "Homepage: https://github.com/${GITHUB_REPOSITORY}"
+            echo "Description: instant filename search on Linux (wis)"
+            echo " Searches file names by reading ext4 metadata straight from the block"
+            echo " device instead of walking the directory tree."
+          } > dist/pkg/DEBIAN/control
+          dpkg-deb --build --root-owner-group dist/pkg \
+            "dist/wis_${version}_${{ matrix.deb_arch }}.deb"
           ls -l dist
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
-          path: dist/*.tar.gz
+          path: |
+            dist/wis-*
+            dist/wis_*.deb
 
   release:
     needs: build
@@ -75,7 +98,7 @@ jobs:
       - name: Checksums
         run: |
           cd dist
-          sha256sum *.tar.gz > SHA256SUMS
+          sha256sum * > SHA256SUMS
           cat SHA256SUMS
 
       - name: Create the release
