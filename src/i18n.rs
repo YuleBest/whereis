@@ -122,6 +122,8 @@ pub struct Text {
     pub matches_stopped: &'static str,
     pub prompt_continue: &'static str,
     pub note_other_ext4: &'static str,
+    pub note_history_ignored: &'static str,
+    pub note_history_not_saved: &'static str,
 
     // argument errors
     pub err_unknown_option: &'static str,
@@ -136,6 +138,8 @@ pub struct Text {
     pub err_unknown_type: &'static str,
     pub err_unknown_line_field: &'static str,
     pub err_unknown_size_unit: &'static str,
+    pub err_base_min: &'static str,
+    pub err_base_out_of_range: &'static str,
 
     // top-level errors
     pub err_not_ext4: &'static str,
@@ -171,6 +175,9 @@ pub struct Text {
     pub io_write_stdout: &'static str,
     pub io_flush_stdout: &'static str,
     pub io_read_mounts: &'static str,
+    pub io_history_path: &'static str,
+    pub io_read_history: &'static str,
+    pub io_write_history: &'static str,
 }
 
 pub fn text_for(lang: Lang) -> &'static Text {
@@ -338,6 +345,12 @@ static EN: Text = Text {
              appear only without -t.",
         ),
         (
+            "-b, --base <NUM>",
+            "Search only inside an earlier result set. NUM counts back from the\n\
+             most recent record: 1 is the last search, 2 the one before, up to\n\
+             10. Every successful search is recorded, empty ones included.",
+        ),
+        (
             "--line <FIELDS>",
             "Custom output columns. List the fields in the order they should\n\
              appear before the path: mode, mtime, size, user, group, nlink\n\
@@ -383,6 +396,8 @@ static EN: Text = Text {
     prompt_continue: "wis: {remaining} more result(s) after the first {shown}; continue? [y/N] ",
     note_other_ext4: "wis: note: {device} at {target} is a separate ext4 filesystem and is not \
                       searched yet",
+    note_history_ignored: "wis: note: history not loaded: {error}",
+    note_history_not_saved: "wis: note: history not saved: {error}",
 
     err_unknown_option: "unknown option `{option}`",
     err_expected_one_name: "expected exactly one NAME",
@@ -396,6 +411,8 @@ static EN: Text = Text {
     err_unknown_type: "unknown type `{value}` (expected one of: {types})",
     err_unknown_line_field: "unknown line field `{field}` (expected one of: {fields})",
     err_unknown_size_unit: "unknown size unit `{unit}` (expected one of: {units})",
+    err_base_min: "`--base` must be at least 1",
+    err_base_out_of_range: "history has only {count} record(s), so `--base {num}` does not exist",
 
     err_not_ext4:
         "{device} is not an ext4 filesystem (superblock magic 0x{magic}, expected 0xef53)",
@@ -432,6 +449,9 @@ static EN: Text = Text {
     io_write_stdout: "write to stdout",
     io_flush_stdout: "flush stdout",
     io_read_mounts: "read /proc/self/mounts",
+    io_history_path: "locate wis_history",
+    io_read_history: "read history file {path}",
+    io_write_history: "write history file {path}",
 };
 
 // ------------------------------------------------------------------- 简体中文
@@ -491,6 +511,13 @@ static ZH_HANS: Text = Text {
              file 指普通文件；符号链接、设备等特殊条目只在不加 -t 时出现。",
         ),
         (
+            "-b, --base <序号>",
+            "只在一条历史记录的结果集里搜索。\n\
+             \n\
+             <序号> 从最近一条记录往回数：1 是最近一次搜索，2 是上一次，最多 10。\n\
+             每次成功的搜索都会记录，空结果也会记录。",
+        ),
+        (
             "--line <字段>",
             "自定义输出列。\n\
              \n\
@@ -528,6 +555,8 @@ static ZH_HANS: Text = Text {
     matches_stopped: "{total} 条命中中的 {shown} 条（已停止输出）",
     prompt_continue: "wis: 已输出 {shown} 条，还有 {remaining} 条；继续输出？[y/N] ",
     note_other_ext4: "wis: 提示：{device}（挂载于 {target}）是另一个 ext4 文件系统，暂不搜索",
+    note_history_ignored: "wis: 提示：未加载历史记录：{error}",
+    note_history_not_saved: "wis: 提示：历史记录未保存：{error}",
 
     err_unknown_option: "未知选项 `{option}`",
     err_expected_one_name: "只接受一个 <名称> 参数",
@@ -541,6 +570,8 @@ static ZH_HANS: Text = Text {
     err_unknown_type: "未知的类型 `{value}`（可选：{types}）",
     err_unknown_line_field: "未知的输出列 `{field}`（可选：{fields}）",
     err_unknown_size_unit: "未知的大小单位 `{unit}`（可选：{units}）",
+    err_base_min: "`--base` 至少为 1",
+    err_base_out_of_range: "历史记录只有 {count} 条，`--base {num}` 不存在",
 
     err_not_ext4: "{device} 不是 ext4 文件系统（超级块 magic 为 0x{magic}，应为 0xef53）",
     err_unsupported: "不支持：{what}",
@@ -574,6 +605,9 @@ static ZH_HANS: Text = Text {
     io_write_stdout: "写入标准输出失败",
     io_flush_stdout: "刷新标准输出失败",
     io_read_mounts: "无法读取 /proc/self/mounts",
+    io_history_path: "定位 wis_history",
+    io_read_history: "读取历史记录文件 {path}",
+    io_write_history: "写入历史记录文件 {path}",
 };
 
 // ------------------------------------------------------------------- 繁體中文
@@ -633,6 +667,13 @@ static ZH_HANT: Text = Text {
              file 指一般檔案；符號連結、裝置等特殊項目只在不加 -t 時出現。",
         ),
         (
+            "-b, --base <序號>",
+            "只在一筆歷史記錄的結果集裡搜尋。\n\
+             \n\
+             <序號> 從最近一筆記錄往回數：1 是最近一次搜尋，2 是上一次，最多 10。\n\
+             每次成功的搜尋都會記錄，空結果也會記錄。",
+        ),
+        (
             "--line <欄位>",
             "自訂輸出欄位。\n\
              \n\
@@ -670,6 +711,8 @@ static ZH_HANT: Text = Text {
     matches_stopped: "{total} 筆命中中的 {shown} 筆（已停止輸出）",
     prompt_continue: "wis: 已輸出 {shown} 筆，還有 {remaining} 筆；繼續輸出？[y/N] ",
     note_other_ext4: "wis: 提示：{device}（掛載於 {target}）是另一個 ext4 檔案系統，暫不搜尋",
+    note_history_ignored: "wis: 提示：未載入歷史記錄：{error}",
+    note_history_not_saved: "wis: 提示：歷史記錄未儲存：{error}",
 
     err_unknown_option: "未知的選項 `{option}`",
     err_expected_one_name: "只接受一個 <名稱> 參數",
@@ -683,6 +726,8 @@ static ZH_HANT: Text = Text {
     err_unknown_type: "未知的類型 `{value}`（可選：{types}）",
     err_unknown_line_field: "未知的輸出欄位 `{field}`（可選：{fields}）",
     err_unknown_size_unit: "未知的大小單位 `{unit}`（可選：{units}）",
+    err_base_min: "`--base` 至少為 1",
+    err_base_out_of_range: "歷史記錄只有 {count} 筆，`--base {num}` 不存在",
 
     err_not_ext4: "{device} 不是 ext4 檔案系統（超級區塊 magic 為 0x{magic}，應為 0xef53）",
     err_unsupported: "不支援：{what}",
@@ -716,6 +761,9 @@ static ZH_HANT: Text = Text {
     io_write_stdout: "寫入標準輸出失敗",
     io_flush_stdout: "重新整理標準輸出失敗",
     io_read_mounts: "無法讀取 /proc/self/mounts",
+    io_history_path: "定位 wis_history",
+    io_read_history: "讀取歷史記錄檔案 {path}",
+    io_write_history: "寫入歷史記錄檔案 {path}",
 };
 
 #[cfg(test)]
@@ -763,6 +811,8 @@ mod tests {
                 text.matches_stopped,
                 text.prompt_continue,
                 text.note_other_ext4,
+                text.note_history_ignored,
+                text.note_history_not_saved,
                 text.err_unknown_option,
                 text.err_expected_one_name,
                 text.err_missing_name,
@@ -775,6 +825,8 @@ mod tests {
                 text.err_unknown_type,
                 text.err_unknown_line_field,
                 text.err_unknown_size_unit,
+                text.err_base_min,
+                text.err_base_out_of_range,
                 text.err_not_ext4,
                 text.err_unsupported,
                 text.err_corrupt,
@@ -802,6 +854,9 @@ mod tests {
                 text.io_write_stdout,
                 text.io_flush_stdout,
                 text.io_read_mounts,
+                text.io_history_path,
+                text.io_read_history,
+                text.io_write_history,
             ];
             for (name, help) in text.examples {
                 all.push(*name);
@@ -853,7 +908,7 @@ mod tests {
             found
         }
 
-        let pairs: [(&str, &str, &str); 23] = [
+        let pairs: [(&str, &str, &str); 28] = [
             (EN.summary, ZH_HANS.summary, ZH_HANT.summary),
             (EN.matches_all, ZH_HANS.matches_all, ZH_HANT.matches_all),
             (
@@ -875,6 +930,16 @@ mod tests {
                 EN.note_other_ext4,
                 ZH_HANS.note_other_ext4,
                 ZH_HANT.note_other_ext4,
+            ),
+            (
+                EN.note_history_ignored,
+                ZH_HANS.note_history_ignored,
+                ZH_HANT.note_history_ignored,
+            ),
+            (
+                EN.note_history_not_saved,
+                ZH_HANS.note_history_not_saved,
+                ZH_HANT.note_history_not_saved,
             ),
             (
                 EN.err_unknown_option,
@@ -917,6 +982,11 @@ mod tests {
                 ZH_HANS.err_unknown_size_unit,
                 ZH_HANT.err_unknown_size_unit,
             ),
+            (
+                EN.err_base_out_of_range,
+                ZH_HANS.err_base_out_of_range,
+                ZH_HANT.err_base_out_of_range,
+            ),
             (EN.err_not_ext4, ZH_HANS.err_not_ext4, ZH_HANT.err_not_ext4),
             (
                 EN.err_unsupported,
@@ -948,6 +1018,16 @@ mod tests {
                 EN.io_read_bytes,
                 ZH_HANS.io_read_bytes,
                 ZH_HANT.io_read_bytes,
+            ),
+            (
+                EN.io_read_history,
+                ZH_HANS.io_read_history,
+                ZH_HANT.io_read_history,
+            ),
+            (
+                EN.io_write_history,
+                ZH_HANS.io_write_history,
+                ZH_HANT.io_write_history,
             ),
         ];
 

@@ -41,6 +41,7 @@ with `-r` it is a regular expression.
 | `-d`, `--device <PATH>` | Scan this block device instead of the filesystem mounted at `/` |
 | `-p`, `--path <PATH>` | Only search inside this absolute directory; with `-r`, PATH is a regular expression and every matching directory is searched recursively |
 | `-t`, `--type <TYPE>[,TYPE2]...` | Search only the given types, comma-separated or repeated: `file`/`f` and `directory`/`d`; no filtering when omitted |
+| `-b`, `--base <NUM>` | Search only inside an earlier result set; NUM counts back from the most recent record, `1` being the last search, up to `10` |
 | `--line <FIELDS>` | Columns before the path and their order, comma-separated: `mode`, `mtime`, `size[=auto\|b\|k\|m\|g\|t]`, `user`, `group`, `nlink` (default `mode,mtime,size`) |
 | `-j`, `--threads <N>` | Concurrent metadata reads to keep in flight (default 16) |
 | `--lang <LANG>` | Force the output language: `zh-Hans`, `zh-Hant`, `en` |
@@ -80,6 +81,18 @@ When a run would print more than 1000 lines, the first 1000 go to stdout and a
 question on stderr asks whether to continue; only `y` prints the rest. The
 question appears only when stdin, stdout and stderr are all terminals, so pipes,
 redirects and scripts are never interrupted.
+
+## History
+
+Every successful search writes its full result set to `wis_history`, empty
+results included; failed searches are not recorded. Only the last 10 records are
+kept. The file lives at `$XDG_STATE_HOME/wis_history`, or
+`~/.local/state/wis_history` when that is unset; under sudo it belongs to the
+invoking user. `-b 1` is the most recent record, `-b 2` the one before it.
+
+A base search rescans the filesystem and keeps only paths that are still in the
+record, so deleted files disappear; the base search itself becomes a record too.
+Records are NUL-separated, so file names with newlines survive.
 
 ## Languages
 

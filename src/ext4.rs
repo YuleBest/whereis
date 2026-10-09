@@ -32,6 +32,7 @@
 //! for its metadata, so the scan sees live in-memory state rather than
 //! not-yet-checkpointed on-disk state. `O_DIRECT` would lose that.
 
+use std::collections::HashSet;
 use std::fs::File;
 use std::os::unix::fs::{FileExt, FileTypeExt};
 use std::path::Path;
@@ -222,6 +223,8 @@ struct ParseOut<'a> {
     in_scope: bool,
     path_filter: Option<&'a PathFilter>,
     types: Option<&'a TypeFilter>,
+    /// When `--base` is in use, only paths in this earlier result set count.
+    base: Option<&'a HashSet<Vec<u8>>>,
 }
 
 // ------------------------------------------------------------------ scanner
@@ -394,6 +397,7 @@ impl Scanner {
         matches: F,
         path_filter: Option<&PathFilter>,
         types: Option<&TypeFilter>,
+        base_filter: Option<&HashSet<Vec<u8>>>,
     ) -> Result<ScanResult>
     where
         F: Fn(&[u8]) -> bool,
@@ -510,6 +514,7 @@ impl Scanner {
                         in_scope: batch[w.batch_index].2,
                         path_filter,
                         types,
+                        base: base_filter,
                     };
                     self.parse_directory(
                         &batch[w.batch_index].1,
@@ -552,6 +557,7 @@ impl Scanner {
         let in_scope = out.in_scope;
         let path_filter = out.path_filter;
         let types = out.types;
+        let base = out.base;
         let mut remaining = size;
 
         for block in data.chunks_exact(block_size) {
@@ -599,17 +605,20 @@ impl Scanner {
                         let wanted = types.map_or(true, |types| types.allows(kind));
 
                         if in_scope && wanted && matches(name) {
-                            out.hits.push(Hit {
-                                path: join_path(dir_path, name),
-                                inode: child,
-                                kind,
-                                mode: 0,
-                                nlink: 0,
-                                uid: 0,
-                                gid: 0,
-                                size: 0,
-                                mtime: 0,
-                            });
+                            let path = join_path(dir_path, name);
+                            if base.map_or(true, |set| set.contains(path.as_slice())) {
+                                out.hits.push(Hit {
+                                    path,
+                                    inode: child,
+                                    kind,
+                                    mode: 0,
+                                    nlink: 0,
+                                    uid: 0,
+                                    gid: 0,
+                                    size: 0,
+                                    mtime: 0,
+                                });
+                            }
                         }
                         if is_dir && child != ROOT_INO && child <= self.geo.inodes_count {
                             let child_path = join_path(dir_path, name);

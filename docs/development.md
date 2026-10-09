@@ -25,6 +25,7 @@ sudo ./target/release/wis sshd_config
 | `src/main.rs` | 命令行解析、语言探测、编排流程、输出 |
 | `src/ext4.rs` | ext4 磁盘结构解码器与批式遍历 |
 | `src/i18n.rs` | 语言选择与三语消息目录 |
+| `src/history.rs` | 历史记录：定位状态文件、读写 NUL 分隔格式、保留最近 10 条 |
 | `src/listing.rs` | 输出列：`--line` 解析、列宽计算、权限位/时间/大小与用户名渲染 |
 | `src/matcher.rs` | 子串与正则匹配 |
 | `src/sort.rs` | 排序键与排序方向 |

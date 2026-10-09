@@ -27,6 +27,7 @@ on stderr reports the bytes, inodes and extent nodes actually read.
 | `src/main.rs` | Argument parsing, language resolution, orchestration, output |
 | `src/ext4.rs` | ext4 on-disk decoder and the batched walk |
 | `src/i18n.rs` | Language selection and the three-language message catalogue |
+| `src/history.rs` | History: state file location, NUL-separated records, last 10 kept |
 | `src/listing.rs` | Output columns: `--line` parsing, widths, mode/time/size and user rendering |
 | `src/matcher.rs` | Substring and regular-expression matching |
 | `src/sort.rs` | Sort keys and directions |

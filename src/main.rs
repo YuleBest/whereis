@@ -1,11 +1,13 @@
 mod error;
 mod ext4;
+mod history;
 mod i18n;
 mod listing;
 mod matcher;
 mod mounts;
 mod sort;
 
+use std::collections::HashSet;
 use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -40,6 +42,7 @@ struct Args {
     path: Option<String>,
     types: Option<TypeFilter>,
     line: Option<String>,
+    base: Option<usize>,
     threads: Option<usize>,
     regex: bool,
     limit: Option<usize>,
@@ -89,6 +92,27 @@ fn prescan_lang(argv: &[String]) -> Lang {
 fn run(argv: &[String]) -> Result<()> {
     let args = parse_args(argv)?;
 
+    let mut history = history::History::open();
+    if let Some(error) = history.take_error() {
+        if args.base.is_some() {
+            return Err(error);
+        }
+        eprintln!("{}", i18n::t!(note_history_ignored, error = error));
+    }
+    let base = match args.base {
+        Some(back) => match history.record(back) {
+            Some(paths) => Some(paths.iter().cloned().collect::<HashSet<Vec<u8>>>()),
+            None => {
+                return Err(Error::usage(i18n::t!(
+                    err_base_out_of_range,
+                    num = back,
+                    count = history.len()
+                )))
+            }
+        },
+        None => None,
+    };
+
     let device = match &args.device {
         Some(explicit) => explicit.clone(),
         None => resolve_root_device()?,
@@ -117,6 +141,7 @@ fn run(argv: &[String]) -> Result<()> {
         |name| matcher.is_match(name),
         path_filter.as_ref(),
         args.types.as_ref(),
+        base.as_ref(),
     )?;
     let mut hits = result.hits;
 
@@ -128,6 +153,9 @@ fn run(argv: &[String]) -> Result<()> {
     let elapsed = started.elapsed();
     let mut stats = result.stats;
     scanner.refresh_stats(&mut stats);
+    if let Err(error) = history.save(hits.iter().map(|hit| hit.path.as_slice())) {
+        eprintln!("{}", i18n::t!(note_history_not_saved, error = error));
+    }
 
     let matched = hits.len();
     if let Some(limit) = args.limit {
@@ -203,6 +231,7 @@ fn parse_args(argv: &[String]) -> Result<Args> {
     let mut type_dirs = false;
     let mut type_given = false;
     let mut line: Option<String> = None;
+    let mut base: Option<usize> = None;
     let mut threads: Option<usize> = None;
     let mut regex = false;
     let mut clean = false;
@@ -252,6 +281,16 @@ fn parse_args(argv: &[String]) -> Result<Args> {
             }
             "--line" => {
                 line = Some(value_of(argv, &mut i, "--line")?);
+            }
+            "-b" | "--base" => {
+                let value = value_of(argv, &mut i, "--base")?;
+                let back: usize = value
+                    .parse()
+                    .map_err(|_| Error::usage(i18n::t!(err_not_a_number, value = value)))?;
+                if back == 0 {
+                    return Err(Error::usage(i18n::t!(err_base_min)));
+                }
+                base = Some(back);
             }
             "-n" | "--limit" => {
                 let value = value_of(argv, &mut i, "--limit")?;
@@ -319,6 +358,7 @@ fn parse_args(argv: &[String]) -> Result<Args> {
             dirs: type_dirs,
         }),
         line,
+        base,
         threads,
         regex,
         limit,
@@ -439,6 +479,16 @@ mod tests {
         let args = parse_args(&["--path".into(), "/var".into(), "name".into()]).unwrap();
         assert_eq!(args.path.as_deref(), Some("/var"));
         assert!(parse_args(&["name".into()]).unwrap().path.is_none());
+    }
+
+    #[test]
+    fn base_option_is_parsed() {
+        let args = parse_args(&["-b".into(), "2".into(), "name".into()]).unwrap();
+        assert_eq!(args.base, Some(2));
+        assert!(parse_args(&["--base".into(), "1".into(), "name".into()]).is_ok());
+        assert!(parse_args(&["-b".into(), "0".into(), "name".into()]).is_err());
+        assert!(parse_args(&["-b".into(), "x".into(), "name".into()]).is_err());
+        assert!(parse_args(&["name".into()]).unwrap().base.is_none());
     }
 
     #[test]
