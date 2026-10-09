@@ -103,25 +103,16 @@ pub fn lang() -> Lang {
 pub struct Text {
     // usage
     pub usage_title: &'static str,
-    pub usage_header: &'static str,
     pub usage_blurb: &'static str,
+    pub examples_header: &'static str,
+    pub examples: &'static [(&'static str, &'static str)],
+    pub usage_header: &'static str,
+    pub usage_synopsis: &'static str,
     pub args_header: &'static str,
     pub arg_name: &'static str,
+    pub arg_help: &'static str,
     pub options_header: &'static str,
-    pub opt_regex: &'static str,
-    pub opt_limit: &'static str,
-    pub opt_sort: &'static str,
-    pub opt_device: &'static str,
-    pub opt_path: &'static str,
-    pub opt_type: &'static str,
-    pub opt_line: &'static str,
-    pub opt_threads: &'static str,
-    pub opt_lang: &'static str,
-    pub opt_clean: &'static str,
-    pub opt_quiet: &'static str,
-    pub opt_help: &'static str,
-    pub opt_version: &'static str,
-    pub usage_footer: &'static str,
+    pub options: &'static [(&'static str, &'static str)],
 
     // runtime output
     pub hint_root: &'static str,
@@ -227,87 +218,161 @@ macro_rules! t {
 }
 pub(crate) use t;
 
-/// The help text. The command synopsis and option names are the same in every
-/// language, so only the prose around them is translated.
+/// The help text, laid out like the one from `zed --help`: each name on its own
+/// line with the description indented under it, sections separated by blank
+/// lines.
 pub fn usage(lang: Lang) -> String {
     let text = text_for(lang);
     let mut out = String::new();
     out.push_str(text.usage_title);
     out.push_str("\n\n");
-    out.push_str(text.usage_header);
-    out.push_str("\n    wis [OPTIONS] <NAME>\n\n");
     out.push_str(text.usage_blurb);
     out.push_str("\n\n");
-    out.push_str(text.args_header);
+
+    out.push_str(text.examples_header);
     out.push('\n');
-    out.push_str(text.arg_name);
-    out.push_str("\n\n");
-    out.push_str(text.options_header);
-    out.push('\n');
-    for option in [
-        text.opt_regex,
-        text.opt_limit,
-        text.opt_sort,
-        text.opt_device,
-        text.opt_path,
-        text.opt_type,
-        text.opt_line,
-        text.opt_threads,
-        text.opt_lang,
-        text.opt_clean,
-        text.opt_quiet,
-        text.opt_help,
-        text.opt_version,
-    ] {
-        out.push_str(option);
-        out.push('\n');
+    for (command, help) in text.examples {
+        push_block(&mut out, command, help, 4);
     }
     out.push('\n');
-    out.push_str(text.usage_footer);
+
+    out.push_str(text.usage_header);
+    out.push(' ');
+    out.push_str(text.usage_synopsis);
+    out.push_str("\n\n");
+
+    out.push_str(text.args_header);
     out.push('\n');
+    push_block(&mut out, text.arg_name, text.arg_help, 2);
+    out.push('\n');
+
+    out.push_str(text.options_header);
+    out.push('\n');
+    for (i, (flag, help)) in text.options.iter().enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        push_block(&mut out, flag, help, 2);
+    }
     out
+}
+
+/// One help item: the name on its own line, then the description indented under
+/// it. Blank lines in the description become paragraph breaks.
+fn push_block(out: &mut String, name: &str, help: &str, indent: usize) {
+    for _ in 0..indent {
+        out.push(' ');
+    }
+    out.push_str(name);
+    out.push('\n');
+    for line in help.lines() {
+        if line.is_empty() {
+            out.push('\n');
+        } else {
+            out.push_str("          ");
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
 }
 
 // -------------------------------------------------------------------- English
 
 static EN: Text = Text {
     usage_title: "wis - instant filename search on Linux",
-    usage_header: "USAGE:",
-    usage_blurb: "Searches file names on the root filesystem by reading the ext4 metadata directly\n\
-                  from the block device, without walking the directory tree through the kernel.\n\
-                  Reading a block device requires root.",
-    args_header: "ARGS:",
-    arg_name: "    <NAME>    What to look for in a file name: by default a case-insensitive\n\
-               \x20             substring, with --regex a regular expression",
-    options_header: "OPTIONS:",
-    opt_regex: "    -r, --regex             Treat <NAME> as a regular expression, searched within\n\
-                \x20                           the file name. Matching stays case-insensitive\n\
-                \x20                           unless the pattern says otherwise with (?-i)",
-    opt_limit: "    -n, --limit <N>         Print at most N results, applied after sorting",
-    opt_sort: "    -s, --sort <KEY> [DIR]  Sort by KEY in direction DIR, which defaults to asc.\n\
-               \x20                           KEY: name, path, ext, size, mtime\n\
-               \x20                           DIR: asc, desc",
-    opt_device: "    -d, --device <PATH>     Scan this block device (or filesystem image) instead\n\
-                 \x20                           of the filesystem mounted at /",
-    opt_path: "    -p, --path <PATH>       Only search inside PATH, an absolute directory.\n\
-               \x20                           With --regex, PATH is a regular expression and\n\
-               \x20                           every directory it matches is searched recursively",
-    opt_type: "    -t, --type <TYPE>       Search only these types, comma-separated: file (f),\n\
-               \x20                           directory (d). Without this option every type is\n\
-               \x20                           searched",
-    opt_line: "    --line <FIELDS>         Columns before the path, comma-separated, in this\n\
-               \x20                           order: mode, mtime, size[=auto|b|k|m|g|t], user,\n\
-               \x20                           group, nlink (default: mode,mtime,size)",
-    opt_threads: "    -j, --threads <N>       Concurrent metadata reads to keep in flight\n\
-                  \x20                           (default 16; the scan is latency-bound, not CPU-bound)",
-    opt_lang: "    --lang <LANG>           Force the output language: zh-Hans, zh-Hant, en\n\
-               \x20                           (default: from LC_ALL, LANGUAGE, LC_MESSAGES, LANG)",
-    opt_clean: "    -c, --clean             Print bare paths only: no columns, no summary",
-    opt_quiet: "    -q, --quiet             Never ask before printing more than 1000 results",
-    opt_help: "    -h, --help              Print this help",
-    opt_version: "    -V, --version           Print version",
-    usage_footer: "The columns and size/mtime sorting cost one inode read per match, because the\n\
-                   walk itself only ever reads directory inodes.",
+    usage_blurb: "Searches file names on the root filesystem by reading the ext4 metadata\n\
+                  directly from the block device, without walking the directory tree\n\
+                  through the kernel. Reading a block device requires root; results go\n\
+                  to stdout and the summary to stderr.",
+    examples_header: "Examples:",
+    examples: &[
+        ("sudo wis sshd_config", "substring search"),
+        ("sudo wis -r '^libssl\\.so\\.[0-9]+$'", "regular expression"),
+        (
+            "sudo wis -s size desc -n 10 '\\.log$'",
+            "the 10 biggest log files",
+        ),
+    ],
+    usage_header: "Usage:",
+    usage_synopsis: "wis [OPTIONS] <NAME>",
+    args_header: "Arguments:",
+    arg_name: "<NAME>",
+    arg_help: "What to look for in a file name. A case-insensitive substring by\n\
+               default, or a regular expression with -r.",
+    options_header: "Options:",
+    options: &[
+        (
+            "-r, --regex",
+            "Regular expression. <NAME> is matched case-insensitively by\n\
+             default; add (?-i) to opt out.",
+        ),
+        (
+            "-n, --limit <N>",
+            "Limit the number of results. Applied after sorting.",
+        ),
+        (
+            "-s, --sort <KEY> [DIR]",
+            "Sort the results. KEY is name, path (default), ext, size or\n\
+             mtime; DIR is asc (default) or desc.",
+        ),
+        (
+            "-d, --device <PATH>",
+            "Scan a block device or filesystem image instead of the\n\
+             filesystem mounted at /.",
+        ),
+        (
+            "-p, --path <PATH>",
+            "Restrict the search path. Only entries strictly below this\n\
+             absolute directory are searched; the on-disk tree is used and\n\
+             symlinks are not followed.\n\
+             \n\
+             With -r, PATH is a regular expression and every directory it\n\
+             matches has its whole subtree searched.",
+        ),
+        (
+            "-t, --type <TYPE>",
+            "Filter by entry type. TYPE is file (f) or directory (d),\n\
+             comma-separated or repeated.\n\
+             \n\
+             file means a regular file; symlinks and other special entries\n\
+             appear only without -t.",
+        ),
+        (
+            "--line <FIELDS>",
+            "Custom output columns. List the fields in the order they should\n\
+             appear before the path: mode, mtime, size, user, group, nlink\n\
+             (default mode,mtime,size).\n\
+             \n\
+             size uses adaptive 1024-based units, or size=auto|b|k|m|g|t to\n\
+             pin one. mtime is local time; user and group names come from the\n\
+             system NSS and fall back to numbers.",
+        ),
+        (
+            "-j, --threads <N>",
+            "Concurrent metadata reads (default 16; the scan is\n\
+             latency-bound, not CPU-bound).",
+        ),
+        (
+            "--lang <LANG>",
+            "Force the output language: zh-Hans, zh-Hant, en. The default\n\
+             comes from LC_ALL, LANGUAGE, LC_MESSAGES and LANG.",
+        ),
+        (
+            "-c, --clean",
+            "Bare paths only: no columns and no summary on stderr.",
+        ),
+        (
+            "-q, --quiet",
+            "Never ask, print everything. By default an output longer than\n\
+             1000 lines is asked about after the first 1000, and only y\n\
+             continues.\n\
+             \n\
+             The question appears only when stdin, stdout and stderr are all\n\
+             terminals, so pipes and redirects are not interrupted.",
+        ),
+        ("-h, --help", "Print this help."),
+        ("-V, --version", "Print version."),
+    ],
 
     hint_root: "hint: reading a block device needs root -- try `sudo wis ...`",
     summary: "{shown} in {secs}s -- {entries} entries in {dirs} dirs, {mib} MiB read \
@@ -332,7 +397,8 @@ static EN: Text = Text {
     err_unknown_line_field: "unknown line field `{field}` (expected one of: {fields})",
     err_unknown_size_unit: "unknown size unit `{unit}` (expected one of: {units})",
 
-    err_not_ext4: "{device} is not an ext4 filesystem (superblock magic 0x{magic}, expected 0xef53)",
+    err_not_ext4:
+        "{device} is not an ext4 filesystem (superblock magic 0x{magic}, expected 0xef53)",
     err_unsupported: "unsupported: {what}",
     err_corrupt: "malformed filesystem metadata: {what}",
     err_no_block_device: "cannot search {path}: it is a {fstype} filesystem, and only ext4 on a \
@@ -344,7 +410,8 @@ static EN: Text = Text {
                            different layout (enable it with `tune2fs -O filetype`)",
     unsupported_meta_bg: "filesystem uses `meta_bg`: the group descriptors are not stored as one \
                           contiguous table, which this reader does not handle",
-    unsupported_inline_data: "filesystem uses `inline_data`: small directories live inside the inode",
+    unsupported_inline_data:
+        "filesystem uses `inline_data`: small directories live inside the inode",
     unsupported_bigalloc: "filesystem uses `bigalloc`: extents are counted in clusters, not blocks",
     note_no_extent: "wis: note: filesystem has no `extent` feature; using legacy block maps",
 
@@ -371,40 +438,87 @@ static EN: Text = Text {
 
 static ZH_HANS: Text = Text {
     usage_title: "wis - 在 Linux 上即时搜索文件名",
-    usage_header: "用法:",
     usage_blurb:
         "直接读取块设备上的 ext4 元数据来搜索根文件系统上的文件名，不经过内核遍历目录树。\n\
-                  读取块设备需要 root 权限。",
+                  读取块设备需要 root 权限；结果写入标准输出，统计和询问写入标准错误。",
+    examples_header: "示例:",
+    examples: &[
+        ("sudo wis sshd_config", "子串搜索"),
+        ("sudo wis -r '^libssl\\.so\\.[0-9]+$'", "正则搜索"),
+        (
+            "sudo wis -s size desc -n 10 '\\.log$'",
+            "按大小倒序取前 10 个日志",
+        ),
+    ],
+    usage_header: "用法:",
+    usage_synopsis: "wis [选项] <名称>",
     args_header: "参数:",
-    arg_name:
-        "    <名称>    要查找的文件名内容。默认是不区分大小写的子串，加 --regex 后视为正则表达式",
+    arg_name: "<名称>",
+    arg_help: "要搜索的文件名内容。默认按不区分大小写的子串匹配，加 -r 后\n\
+               按正则表达式匹配。",
     options_header: "选项:",
-    opt_regex: "    -r, --regex          把 <名称> 当作正则表达式，在文件名中搜索而非整名匹配。\n\
-               \x20                        匹配默认仍不区分大小写，除非用 (?-i) 明确要求",
-    opt_limit: "    -n, --limit <N>      最多输出 N 条结果，在排序之后应用",
-    opt_sort: "    -s, --sort <键> [方向]\n\
-               \x20                        按 <键> 排序，方向可省略\n\
-               \x20                        <键>：name、path、ext、size、mtime\n\
-               \x20                        方向：asc（正序，默认）、desc（倒序）",
-    opt_device:
-        "    -d, --device <路径>  扫描指定的块设备（或文件系统镜像），而非挂载在 / 的文件系统",
-    opt_path: "    -p, --path <路径>    只搜索该绝对路径（目录）之内的条目。\n\
-               \x20                        与 --regex 同用时，路径视为正则表达式，\n\
-               \x20                        匹配到的目录会被递归搜索",
-    opt_type: "    -t, --type <类型>    只搜索这些类型，逗号分隔：file（f）、directory（d）。\n\
-               \x20                        不指定时搜索所有类型",
-    opt_line: "    --line <字段>        路径前的列，按给定顺序排列，逗号分隔：\n\
-               \x20                        mode、mtime、size[=auto|b|k|m|g|t]、\n\
-               \x20                        user、group、nlink（默认：mode,mtime,size）",
-    opt_threads: "    -j, --threads <N>    并发读取数（默认 16；扫描受设备延迟限制，而非 CPU）",
-    opt_lang: "    --lang <语言>        强制指定输出语言：zh-Hans、zh-Hant、en\n\
-               \x20                        （默认从 LC_ALL、LANGUAGE、LC_MESSAGES、LANG 推断）",
-    opt_clean: "    -c, --clean          只输出纯路径：不加列，也不输出统计信息",
-    opt_quiet: "    -q, --quiet          输出超过 1000 行时也不询问，直接全部输出",
-    opt_help: "    -h, --help           显示本帮助",
-    opt_version: "    -V, --version        显示版本",
-    usage_footer:
-        "默认列和 size/mtime 排序都需要为每条命中读一次 inode，因为遍历本身只读取目录的 inode。",
+    options: &[
+        (
+            "-r, --regex",
+            "正则匹配。默认不区分大小写，可用 (?-i) 关闭。",
+        ),
+        ("-n, --limit <N>", "限制输出条数，在排序之后应用。"),
+        (
+            "-s, --sort <键> [方向]",
+            "按字段排序。\n\
+             \n\
+             键：name、path（默认）、ext、size、mtime。\n\
+             方向：asc（默认）、desc。",
+        ),
+        (
+            "-d, --device <路径>",
+            "指定块设备。\n\
+             \n\
+             也可以指向文件系统镜像，而非挂载在 / 的文件系统。",
+        ),
+        (
+            "-p, --path <路径>",
+            "限定搜索路径。\n\
+             \n\
+             只搜索该绝对路径之下的条目，按盘上目录结构解释，不解析符号链接。\n\
+             与 -r 同用时路径按正则表达式匹配，命中目录的整棵子树都会被搜索。",
+        ),
+        (
+            "-t, --type <类型>",
+            "按类型筛选。\n\
+             \n\
+             可选 file（f）、directory（d），逗号分隔或重复给出。\n\
+             file 指普通文件；符号链接、设备等特殊条目只在不加 -t 时出现。",
+        ),
+        (
+            "--line <字段>",
+            "自定义输出列。\n\
+             \n\
+             列按给定顺序排在路径之前：mode、mtime、size、user、group、nlink，\n\
+             默认 mode,mtime,size。\n\
+             size 默认自适应单位，也可用 size=auto|b|k|m|g|t 固定；mtime 为本地时间；\n\
+             user、group 通过系统 NSS 解析，查不到时显示数字。",
+        ),
+        (
+            "-j, --threads <N>",
+            "并发读取数（默认 16；扫描受设备延迟限制，而非 CPU）。",
+        ),
+        (
+            "--lang <语言>",
+            "强制输出语言：zh-Hans、zh-Hant、en。\n\
+             默认从 LC_ALL、LANGUAGE、LC_MESSAGES、LANG 推断。",
+        ),
+        ("-c, --clean", "只输出纯路径，不加列也不输出统计信息。"),
+        (
+            "-q, --quiet",
+            "不询问，直接输出全部结果。\n\
+             \n\
+             默认输出超过 1000 行时，会先输出 1000 行再询问，只有输入 y 才继续。\n\
+             该询问只在标准输入、输出、错误都是终端时出现，管道和重定向不受影响。",
+        ),
+        ("-h, --help", "显示本帮助。"),
+        ("-V, --version", "显示版本。"),
+    ],
 
     hint_root: "提示：读取块设备需要 root 权限，请用 `sudo wis ...`",
     summary: "{shown}，用时 {secs}s —— 扫描 {entries} 个条目、{dirs} 个目录，读取 {mib} MiB\
@@ -466,36 +580,87 @@ static ZH_HANS: Text = Text {
 
 static ZH_HANT: Text = Text {
     usage_title: "wis - 在 Linux 上即時搜尋檔案名稱",
+    usage_blurb:
+        "直接讀取區塊裝置上的 ext4 中介資料來搜尋根檔案系統上的檔案名稱，不透過核心走訪目錄樹。\n\
+                  讀取區塊裝置需要 root 權限；結果寫入標準輸出，統計與詢問寫入標準錯誤。",
+    examples_header: "範例:",
+    examples: &[
+        ("sudo wis sshd_config", "子字串搜尋"),
+        ("sudo wis -r '^libssl\\.so\\.[0-9]+$'", "正規表達式搜尋"),
+        (
+            "sudo wis -s size desc -n 10 '\\.log$'",
+            "依大小倒序取前 10 個日誌",
+        ),
+    ],
     usage_header: "用法:",
-    usage_blurb: "直接讀取區塊裝置上的 ext4 中介資料來搜尋根檔案系統上的檔案名稱，不透過核心走訪目錄樹。\n\
-                  讀取區塊裝置需要 root 權限。",
+    usage_synopsis: "wis [選項] <名稱>",
     args_header: "參數:",
-    arg_name: "    <名稱>    要尋找的檔案名稱內容。預設為不分大小寫的子字串，加上 --regex 後視為正規表達式",
+    arg_name: "<名稱>",
+    arg_help: "要搜尋的檔案名稱內容。預設為不分大小寫的子字串，加 -r 後\n\
+               視為正規表達式。",
     options_header: "選項:",
-    opt_regex: "    -r, --regex          把 <名稱> 當作正規表達式，在檔案名稱中搜尋而非整名比對。\n\
-               \x20                        比對預設仍不分大小寫，除非用 (?-i) 明確要求",
-    opt_limit: "    -n, --limit <N>      最多輸出 N 筆結果，於排序之後套用",
-    opt_sort: "    -s, --sort <鍵> [方向]\n\
-               \x20                        依 <鍵> 排序，方向可省略\n\
-               \x20                        <鍵>：name、path、ext、size、mtime\n\
-               \x20                        方向：asc（正序，預設）、desc（倒序）",
-    opt_device: "    -d, --device <路徑>  掃描指定的區塊裝置（或檔案系統映像），而非掛載於 / 的檔案系統",
-    opt_path: "    -p, --path <路徑>    只搜尋該絕對路徑（目錄）之內的項目。\n\
-               \x20                        與 --regex 同用時，路徑視為正規表達式，\n\
-               \x20                        符合的目錄會被遞迴搜尋",
-    opt_type: "    -t, --type <類型>    只搜尋這些類型，逗號分隔：file（f）、directory（d）。\n\
-               \x20                        不指定時搜尋所有類型",
-    opt_line: "    --line <欄位>        路徑前的欄位，依給定順序排列，逗號分隔：\n\
-               \x20                        mode、mtime、size[=auto|b|k|m|g|t]、\n\
-               \x20                        user、group、nlink（預設：mode,mtime,size）",
-    opt_threads: "    -j, --threads <N>    並行讀取數（預設 16；掃描受裝置延遲限制，而非 CPU）",
-    opt_lang: "    --lang <語言>        強制指定輸出語言：zh-Hans、zh-Hant、en\n\
-               \x20                        （預設由 LC_ALL、LANGUAGE、LC_MESSAGES、LANG 推斷）",
-    opt_clean: "    -c, --clean          只輸出純路徑：不加欄位，也不輸出統計資訊",
-    opt_quiet: "    -q, --quiet          輸出超過 1000 行時也不詢問，直接全部輸出",
-    opt_help: "    -h, --help           顯示本說明",
-    opt_version: "    -V, --version        顯示版本",
-    usage_footer: "預設欄位和 size/mtime 排序都需要為每筆命中讀取一次 inode，因為走訪本身只讀取目錄的 inode。",
+    options: &[
+        (
+            "-r, --regex",
+            "以正規表達式比對。預設不分大小寫，可用 (?-i) 關閉。",
+        ),
+        ("-n, --limit <N>", "限制輸出筆數，於排序之後套用。"),
+        (
+            "-s, --sort <鍵> [方向]",
+            "依欄位排序。\n\
+             \n\
+             <鍵>：name、path（預設）、ext、size、mtime。\n\
+             方向：asc（預設）、desc。",
+        ),
+        (
+            "-d, --device <路徑>",
+            "指定區塊裝置。\n\
+             \n\
+             也可以指向檔案系統映像，而非掛載於 / 的檔案系統。",
+        ),
+        (
+            "-p, --path <路徑>",
+            "限定搜尋路徑。\n\
+             \n\
+             只搜尋該絕對路徑之下的項目，依磁碟上的目錄結構解讀，不解析符號連結。\n\
+             與 -r 同用時，路徑視為正規表達式，符合的目錄整棵子樹都會被搜尋。",
+        ),
+        (
+            "-t, --type <類型>",
+            "依類型篩選。\n\
+             \n\
+             可選 file（f）、directory（d），以逗號分隔或重複給出。\n\
+             file 指一般檔案；符號連結、裝置等特殊項目只在不加 -t 時出現。",
+        ),
+        (
+            "--line <欄位>",
+            "自訂輸出欄位。\n\
+             \n\
+             欄位依給定順序排在路徑之前：mode、mtime、size、user、group、nlink，\n\
+             預設 mode,mtime,size。\n\
+             size 預設自適應單位，也可用 size=auto|b|k|m|g|t 固定；mtime 為本地時間；\n\
+             user、group 透過系統 NSS 解析，查不到時顯示數字。",
+        ),
+        (
+            "-j, --threads <N>",
+            "並行讀取數（預設 16；掃描受裝置延遲限制，而非 CPU）。",
+        ),
+        (
+            "--lang <語言>",
+            "強制輸出語言：zh-Hans、zh-Hant、en。\n\
+             預設由 LC_ALL、LANGUAGE、LC_MESSAGES、LANG 推斷。",
+        ),
+        ("-c, --clean", "只輸出純路徑，不加欄位也不輸出統計資訊。"),
+        (
+            "-q, --quiet",
+            "不詢問，直接輸出全部結果。\n\
+             \n\
+             預設輸出超過 1000 行時，會先輸出 1000 行再詢問，只有輸入 y 才繼續。\n\
+             該詢問只在標準輸入、輸出、錯誤都是終端時出現，管道與重定向不受影響。",
+        ),
+        ("-h, --help", "顯示本說明。"),
+        ("-V, --version", "顯示版本。"),
+    ],
 
     hint_root: "提示：讀取區塊裝置需要 root 權限，請用 `sudo wis ...`",
     summary: "{shown}，耗時 {secs}s —— 掃描 {entries} 個項目、{dirs} 個目錄，讀取 {mib} MiB\
@@ -526,8 +691,10 @@ static ZH_HANT: Text = Text {
     err_bad_pattern: "正規表達式有誤：{what}",
     err_not_a_device: "{path} 既不是區塊裝置也不是一般檔案",
 
-    unsupported_filetype: "檔案系統缺少 `filetype` 特性，目錄項佈局不同（可用 `tune2fs -O filetype` 啟用）",
-    unsupported_meta_bg: "檔案系統使用了 `meta_bg`：區塊群組描述元不是連續的單一表，本程式不處理這種佈局",
+    unsupported_filetype:
+        "檔案系統缺少 `filetype` 特性，目錄項佈局不同（可用 `tune2fs -O filetype` 啟用）",
+    unsupported_meta_bg:
+        "檔案系統使用了 `meta_bg`：區塊群組描述元不是連續的單一表，本程式不處理這種佈局",
     unsupported_inline_data: "檔案系統使用了 `inline_data`：小目錄存放於 inode 內部",
     unsupported_bigalloc: "檔案系統使用了 `bigalloc`：extent 以叢集而非區塊為單位",
     note_no_extent: "wis: 提示：檔案系統沒有 `extent` 特性，改用傳統的區塊映射",
@@ -579,27 +746,16 @@ mod tests {
     fn every_language_fills_every_field() {
         for lang in [Lang::En, Lang::ZhHans, Lang::ZhHant] {
             let text = text_for(lang);
-            let all = [
+            let mut all: Vec<&str> = vec![
                 text.usage_title,
-                text.usage_header,
                 text.usage_blurb,
+                text.examples_header,
+                text.usage_header,
+                text.usage_synopsis,
                 text.args_header,
                 text.arg_name,
+                text.arg_help,
                 text.options_header,
-                text.opt_regex,
-                text.opt_limit,
-                text.opt_sort,
-                text.opt_device,
-                text.opt_path,
-                text.opt_type,
-                text.opt_line,
-                text.opt_threads,
-                text.opt_lang,
-                text.opt_clean,
-                text.opt_quiet,
-                text.opt_help,
-                text.opt_version,
-                text.usage_footer,
                 text.hint_root,
                 text.summary,
                 text.matches_all,
@@ -647,8 +803,29 @@ mod tests {
                 text.io_flush_stdout,
                 text.io_read_mounts,
             ];
+            for (name, help) in text.examples {
+                all.push(*name);
+                all.push(*help);
+            }
+            for (flag, help) in text.options {
+                all.push(*flag);
+                all.push(*help);
+            }
             for (i, message) in all.iter().enumerate() {
                 assert!(!message.is_empty(), "{lang:?} field {i} is empty");
+            }
+        }
+    }
+
+    #[test]
+    fn every_option_has_a_name_and_help() {
+        for lang in [Lang::En, Lang::ZhHans, Lang::ZhHant] {
+            let text = text_for(lang);
+            assert!(!text.examples.is_empty(), "{lang:?} has no examples");
+            assert!(text.options.len() >= 13, "{lang:?} lost an option");
+            for (name, help) in text.examples.iter().chain(text.options.iter()) {
+                assert!(!name.trim().is_empty(), "{lang:?} has an empty name");
+                assert!(!help.trim().is_empty(), "{lang:?} {name} has no help");
             }
         }
     }
