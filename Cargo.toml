@@ -12,10 +12,12 @@ name = "wis"
 path = "src/main.rs"
 
 # The disk side is deliberately dependency-free -- talking to the block device
-# ourselves is the whole point. `regex` is the one exception: hand-rolling a regex
-# engine would be a project in itself, and this crate is pure Rust with a `bytes`
-# API that handles non-UTF-8 file names.
+# ourselves is the whole point. Two exceptions: `regex`, because hand-rolling a
+# regex engine would be a project in itself (and its `bytes` API handles non-UTF-8
+# names), and `libc`, for localtime_r and the passwd/group lookups the listing
+# columns need.
 [dependencies]
+libc = "0.2"
 regex = "1.13.1"
 
 [profile.release]

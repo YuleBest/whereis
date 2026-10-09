@@ -114,6 +114,7 @@ pub struct Text {
     pub opt_device: &'static str,
     pub opt_path: &'static str,
     pub opt_type: &'static str,
+    pub opt_line: &'static str,
     pub opt_threads: &'static str,
     pub opt_lang: &'static str,
     pub opt_clean: &'static str,
@@ -142,6 +143,8 @@ pub struct Text {
     pub err_unknown_lang: &'static str,
     pub err_bad_path: &'static str,
     pub err_unknown_type: &'static str,
+    pub err_unknown_line_field: &'static str,
+    pub err_unknown_size_unit: &'static str,
 
     // top-level errors
     pub err_not_ext4: &'static str,
@@ -248,6 +251,7 @@ pub fn usage(lang: Lang) -> String {
         text.opt_device,
         text.opt_path,
         text.opt_type,
+        text.opt_line,
         text.opt_threads,
         text.opt_lang,
         text.opt_clean,
@@ -291,16 +295,19 @@ static EN: Text = Text {
     opt_type: "    -t, --type <TYPE>       Search only these types, comma-separated: file (f),\n\
                \x20                           directory (d). Without this option every type is\n\
                \x20                           searched",
+    opt_line: "    --line <FIELDS>         Columns before the path, comma-separated, in this\n\
+               \x20                           order: mode, mtime, size[=auto|b|k|m|g|t], user,\n\
+               \x20                           group, nlink (default: mode,mtime,size)",
     opt_threads: "    -j, --threads <N>       Concurrent metadata reads to keep in flight\n\
                   \x20                           (default 16; the scan is latency-bound, not CPU-bound)",
     opt_lang: "    --lang <LANG>           Force the output language: zh-Hans, zh-Hant, en\n\
                \x20                           (default: from LC_ALL, LANGUAGE, LC_MESSAGES, LANG)",
-    opt_clean: "    -c, --clean             Suppress the summary line on stderr",
+    opt_clean: "    -c, --clean             Print bare paths only: no columns, no summary",
     opt_quiet: "    -q, --quiet             Never ask before printing more than 1000 results",
     opt_help: "    -h, --help              Print this help",
     opt_version: "    -V, --version           Print version",
-    usage_footer: "`size` and `mtime` cost one extra inode read per match, because the walk itself\n\
-                   only ever reads directory inodes.",
+    usage_footer: "The columns and size/mtime sorting cost one inode read per match, because the\n\
+                   walk itself only ever reads directory inodes.",
 
     hint_root: "hint: reading a block device needs root -- try `sudo wis ...`",
     summary: "{shown} in {secs}s -- {entries} entries in {dirs} dirs, {mib} MiB read \
@@ -322,6 +329,8 @@ static EN: Text = Text {
     err_unknown_lang: "unknown language `{value}` (expected one of: {langs})",
     err_bad_path: "`{value}` is not an absolute path",
     err_unknown_type: "unknown type `{value}` (expected one of: {types})",
+    err_unknown_line_field: "unknown line field `{field}` (expected one of: {fields})",
+    err_unknown_size_unit: "unknown size unit `{unit}` (expected one of: {units})",
 
     err_not_ext4: "{device} is not an ext4 filesystem (superblock magic 0x{magic}, expected 0xef53)",
     err_unsupported: "unsupported: {what}",
@@ -384,15 +393,18 @@ static ZH_HANS: Text = Text {
                \x20                        匹配到的目录会被递归搜索",
     opt_type: "    -t, --type <类型>    只搜索这些类型，逗号分隔：file（f）、directory（d）。\n\
                \x20                        不指定时搜索所有类型",
+    opt_line: "    --line <字段>        路径前的列，按给定顺序排列，逗号分隔：\n\
+               \x20                        mode、mtime、size[=auto|b|k|m|g|t]、\n\
+               \x20                        user、group、nlink（默认：mode,mtime,size）",
     opt_threads: "    -j, --threads <N>    并发读取数（默认 16；扫描受设备延迟限制，而非 CPU）",
     opt_lang: "    --lang <语言>        强制指定输出语言：zh-Hans、zh-Hant、en\n\
                \x20                        （默认从 LC_ALL、LANGUAGE、LC_MESSAGES、LANG 推断）",
-    opt_clean: "    -c, --clean          不输出 stderr 上的统计信息",
+    opt_clean: "    -c, --clean          只输出纯路径：不加列，也不输出统计信息",
     opt_quiet: "    -q, --quiet          输出超过 1000 行时也不询问，直接全部输出",
     opt_help: "    -h, --help           显示本帮助",
     opt_version: "    -V, --version        显示版本",
     usage_footer:
-        "size 和 mtime 排序时，每条命中需要额外读一次 inode，因为遍历本身只读取目录的 inode。",
+        "默认列和 size/mtime 排序都需要为每条命中读一次 inode，因为遍历本身只读取目录的 inode。",
 
     hint_root: "提示：读取块设备需要 root 权限，请用 `sudo wis ...`",
     summary: "{shown}，用时 {secs}s —— 扫描 {entries} 个条目、{dirs} 个目录，读取 {mib} MiB\
@@ -413,6 +425,8 @@ static ZH_HANS: Text = Text {
     err_unknown_lang: "未知的语言 `{value}`（可选：{langs}）",
     err_bad_path: "`{value}` 不是绝对路径",
     err_unknown_type: "未知的类型 `{value}`（可选：{types}）",
+    err_unknown_line_field: "未知的输出列 `{field}`（可选：{fields}）",
+    err_unknown_size_unit: "未知的大小单位 `{unit}`（可选：{units}）",
 
     err_not_ext4: "{device} 不是 ext4 文件系统（超级块 magic 为 0x{magic}，应为 0xef53）",
     err_unsupported: "不支持：{what}",
@@ -471,14 +485,17 @@ static ZH_HANT: Text = Text {
                \x20                        符合的目錄會被遞迴搜尋",
     opt_type: "    -t, --type <類型>    只搜尋這些類型，逗號分隔：file（f）、directory（d）。\n\
                \x20                        不指定時搜尋所有類型",
+    opt_line: "    --line <欄位>        路徑前的欄位，依給定順序排列，逗號分隔：\n\
+               \x20                        mode、mtime、size[=auto|b|k|m|g|t]、\n\
+               \x20                        user、group、nlink（預設：mode,mtime,size）",
     opt_threads: "    -j, --threads <N>    並行讀取數（預設 16；掃描受裝置延遲限制，而非 CPU）",
     opt_lang: "    --lang <語言>        強制指定輸出語言：zh-Hans、zh-Hant、en\n\
                \x20                        （預設由 LC_ALL、LANGUAGE、LC_MESSAGES、LANG 推斷）",
-    opt_clean: "    -c, --clean          不輸出 stderr 上的統計資訊",
+    opt_clean: "    -c, --clean          只輸出純路徑：不加欄位，也不輸出統計資訊",
     opt_quiet: "    -q, --quiet          輸出超過 1000 行時也不詢問，直接全部輸出",
     opt_help: "    -h, --help           顯示本說明",
     opt_version: "    -V, --version        顯示版本",
-    usage_footer: "以 size 和 mtime 排序時，每筆命中需額外讀取一次 inode，因為走訪本身只讀取目錄的 inode。",
+    usage_footer: "預設欄位和 size/mtime 排序都需要為每筆命中讀取一次 inode，因為走訪本身只讀取目錄的 inode。",
 
     hint_root: "提示：讀取區塊裝置需要 root 權限，請用 `sudo wis ...`",
     summary: "{shown}，耗時 {secs}s —— 掃描 {entries} 個項目、{dirs} 個目錄，讀取 {mib} MiB\
@@ -499,6 +516,8 @@ static ZH_HANT: Text = Text {
     err_unknown_lang: "未知的語言 `{value}`（可選：{langs}）",
     err_bad_path: "`{value}` 不是絕對路徑",
     err_unknown_type: "未知的類型 `{value}`（可選：{types}）",
+    err_unknown_line_field: "未知的輸出欄位 `{field}`（可選：{fields}）",
+    err_unknown_size_unit: "未知的大小單位 `{unit}`（可選：{units}）",
 
     err_not_ext4: "{device} 不是 ext4 檔案系統（超級區塊 magic 為 0x{magic}，應為 0xef53）",
     err_unsupported: "不支援：{what}",
@@ -573,6 +592,7 @@ mod tests {
                 text.opt_device,
                 text.opt_path,
                 text.opt_type,
+                text.opt_line,
                 text.opt_threads,
                 text.opt_lang,
                 text.opt_clean,
@@ -597,6 +617,8 @@ mod tests {
                 text.err_unknown_lang,
                 text.err_bad_path,
                 text.err_unknown_type,
+                text.err_unknown_line_field,
+                text.err_unknown_size_unit,
                 text.err_not_ext4,
                 text.err_unsupported,
                 text.err_corrupt,
@@ -654,7 +676,7 @@ mod tests {
             found
         }
 
-        let pairs: [(&str, &str, &str); 21] = [
+        let pairs: [(&str, &str, &str); 23] = [
             (EN.summary, ZH_HANS.summary, ZH_HANT.summary),
             (EN.matches_all, ZH_HANS.matches_all, ZH_HANT.matches_all),
             (
@@ -708,6 +730,16 @@ mod tests {
                 ZH_HANS.err_unknown_type,
                 ZH_HANT.err_unknown_type,
             ),
+            (
+                EN.err_unknown_line_field,
+                ZH_HANS.err_unknown_line_field,
+                ZH_HANT.err_unknown_line_field,
+            ),
+            (
+                EN.err_unknown_size_unit,
+                ZH_HANS.err_unknown_size_unit,
+                ZH_HANT.err_unknown_size_unit,
+            ),
             (EN.err_not_ext4, ZH_HANS.err_not_ext4, ZH_HANT.err_not_ext4),
             (
                 EN.err_unsupported,
@@ -760,6 +792,7 @@ mod tests {
                 "--device",
                 "--path",
                 "--type",
+                "--line",
                 "--threads",
                 "--lang",
                 "--clean",

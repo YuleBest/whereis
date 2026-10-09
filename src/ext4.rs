@@ -89,9 +89,16 @@ const SB_DESC_SIZE: usize = 0xFE;
 
 // inode field offsets
 const INO_MODE: usize = 0x00;
+const INO_UID_LO: usize = 0x02;
 const INO_SIZE_LO: usize = 0x04;
 const INO_MTIME: usize = 0x10;
+const INO_GID_LO: usize = 0x18;
+const INO_NLINK: usize = 0x1A;
 const INO_SIZE_HIGH: usize = 0x6C;
+const INO_UID_HI: usize = 0x78;
+const INO_GID_HI: usize = 0x7A;
+const INO_EXTRA_ISIZE: usize = 0x80;
+const INO_MTIME_EXTRA: usize = 0x88;
 const INO_BLOCK: usize = 0x28;
 const INO_BLOCK_LEN: usize = 60;
 
@@ -149,15 +156,20 @@ pub struct ScanResult {
 
 /// One matched entry.
 ///
-/// The kind is always known: directory entries carry their type. `size` and
-/// `mtime` stay zero during the scan, because the walk only reads *directory*
-/// inodes; they are filled in by [`Scanner::fill_metadata`] on demand.
+/// The kind is always known: directory entries carry their type. Everything
+/// else (mode, link count, uid/gid, size, mtime) lives in the inode, which the
+/// walk does not read for plain files, so those fields stay zero until
+/// [`Scanner::fill_metadata`] fills them on demand.
 pub struct Hit {
     pub path: Vec<u8>,
     pub inode: u32,
     pub kind: EntryKind,
+    pub mode: u16,
+    pub nlink: u16,
+    pub uid: u32,
+    pub gid: u32,
     pub size: u64,
-    pub mtime: u32,
+    pub mtime: i64,
 }
 
 /// What a directory entry points at, as far as the filters are concerned.
@@ -511,10 +523,15 @@ impl Scanner {
             }
         }
 
+        Ok(ScanResult { hits, stats })
+    }
+
+    /// Copy the live I/O counters into `stats`. Call this after the last phase
+    /// that reads from the device: `scan` returns before `fill_metadata` runs.
+    pub fn refresh_stats(&self, stats: &mut Stats) {
         stats.inode_reads = self.inode_reads.load(Ordering::Relaxed);
         stats.extent_node_reads = self.extent_node_reads.load(Ordering::Relaxed);
         stats.bytes_read = self.bytes_read.load(Ordering::Relaxed);
-        Ok(ScanResult { hits, stats })
     }
 
     /// Parse one directory's data blocks, recording matches and queueing child
@@ -586,6 +603,10 @@ impl Scanner {
                                 path: join_path(dir_path, name),
                                 inode: child,
                                 kind,
+                                mode: 0,
+                                nlink: 0,
+                                uid: 0,
+                                gid: 0,
                                 size: 0,
                                 mtime: 0,
                             });
@@ -717,9 +738,13 @@ impl Scanner {
 
         for (k, &i) in targets.iter().enumerate() {
             let inode = &arena[k * inode_size..(k + 1) * inode_size];
+            hits[i].mode = le16(inode, INO_MODE);
+            hits[i].nlink = le16(inode, INO_NLINK);
+            hits[i].uid = le16(inode, INO_UID_LO) as u32 | (le16(inode, INO_UID_HI) as u32) << 16;
+            hits[i].gid = le16(inode, INO_GID_LO) as u32 | (le16(inode, INO_GID_HI) as u32) << 16;
             hits[i].size =
                 le32(inode, INO_SIZE_LO) as u64 | (le32(inode, INO_SIZE_HIGH) as u64) << 32;
-            hits[i].mtime = le32(inode, INO_MTIME);
+            hits[i].mtime = inode_mtime(inode, inode_size);
         }
         Ok(())
     }
@@ -846,6 +871,20 @@ fn read_exact_at(file: &File, buf: &mut [u8], offset: u64) -> std::io::Result<()
     }
 }
 
+/// Seconds since the epoch, including the extra epoch bits ext4 stores for
+/// timestamps past 2038.
+fn inode_mtime(inode: &[u8], inode_size: usize) -> i64 {
+    let low = le32(inode, INO_MTIME) as u64;
+    // The extra fields only exist in inodes larger than 128 bytes, and only
+    // cover i_mtime_extra when i_extra_isize says that far.
+    let extra = if inode_size > 128 && le16(inode, INO_EXTRA_ISIZE) as usize >= 12 {
+        (le32(inode, INO_MTIME_EXTRA) as u64) & 0x3
+    } else {
+        0
+    };
+    (low | (extra << 32)) as i64
+}
+
 fn is_dot(name: &[u8]) -> bool {
     name == b"." || name == b".."
 }
@@ -888,6 +927,21 @@ mod tests {
         };
         assert!(files.allows(EntryKind::File));
         assert!(!files.allows(EntryKind::Dir));
+    }
+
+    #[test]
+    fn mtime_includes_the_extra_epoch_bits() {
+        let mut inode = vec![0u8; 256];
+        inode[INO_MTIME..INO_MTIME + 4].copy_from_slice(&0x8000_0000u32.to_le_bytes());
+        inode[INO_EXTRA_ISIZE..INO_EXTRA_ISIZE + 2].copy_from_slice(&32u16.to_le_bytes());
+        // Epoch bits 01, nanoseconds 0.
+        inode[INO_MTIME_EXTRA..INO_MTIME_EXTRA + 4].copy_from_slice(&1u32.to_le_bytes());
+        assert_eq!(inode_mtime(&inode, 256), (1u64 << 32 | 0x8000_0000) as i64);
+
+        // 128-byte inodes have no extra area at all.
+        let mut old = vec![0u8; 128];
+        old[INO_MTIME..INO_MTIME + 4].copy_from_slice(&123u32.to_le_bytes());
+        assert_eq!(inode_mtime(&old, 128), 123);
     }
 
     #[test]

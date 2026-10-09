@@ -70,7 +70,7 @@ Whole command, including process start, sorting and writing the output:
 
 | | warm cache | cold cache |
 |---|---|---|
-| `wis ""` (full enumeration) | 0.39 s | 1.34 s |
+| `wis -c ""` (full enumeration, bare paths) | 0.39 s | 1.34 s |
 | `find / -xdev` | 1.16 s | 9.59 s |
 
 Past 16 threads the cold curve flattens (the device queue saturates) and the warm
@@ -79,11 +79,12 @@ Warm cache at 4 threads is in fact marginally faster than at 16, but 16 is the
 better default: it is half a second faster cold, and the warm difference is 30 ms,
 below the threshold where anyone notices.
 
-Sorting by `size` or `mtime` costs one extra inode read per match, because the walk
-only reads *directory* inodes and a match's own metadata is not known in advance.
-Those reads are parallel, and only happen when the key is asked for. Listing all
-500,000 entries on this filesystem takes 0.38 s sorted by path and 0.74 s sorted by
-size.
+The default `mode`/`mtime`/`size` columns cost one inode read per match, so a full
+enumeration lands near the size-sorted figure below; `-c` turns the columns off and
+restores the numbers in the table. Sorting by `size` or `mtime` needs the same
+reads, because the walk only reads *directory* inodes and a match's own metadata is
+not known in advance. Those reads are parallel. Listing all 500,000 entries on this
+filesystem takes 0.38 s sorted by path and 0.74 s sorted by size.
 
 Even cold, a full scan is now cheap enough that a periodic rescan beats
 maintaining an incremental index.

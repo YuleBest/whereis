@@ -25,6 +25,7 @@ sudo ./target/release/wis sshd_config
 | `src/main.rs` | 命令行解析、语言探测、编排流程、输出 |
 | `src/ext4.rs` | ext4 磁盘结构解码器与批式遍历 |
 | `src/i18n.rs` | 语言选择与三语消息目录 |
+| `src/listing.rs` | 输出列：`--line` 解析、列宽计算、权限位/时间/大小与用户名渲染 |
 | `src/matcher.rs` | 子串与正则匹配 |
 | `src/sort.rs` | 排序键与排序方向 |
 | `src/mounts.rs` | 解析 `/proc/self/mounts`，按最长前缀定位挂载点 |
@@ -36,9 +37,10 @@ sudo ./target/release/wis sshd_config
 磁盘这一侧刻意不引入依赖：自己跟块设备对话正是这个项目的意义所在。有两处是手写而非引库的：
 语言环境检测（规则只有十几行，见 `src/i18n.rs`）和 C 原型。
 
-真正唯一的依赖是 [`regex`](https://docs.rs/regex)：手写正则引擎本身就是个大工程，而它是纯 Rust，
-且 `bytes` API 能处理非 UTF-8 文件名。它会连带引入四个传递依赖（`regex-automata`、
-`regex-syntax`、`aho-corasick`、`memchr`）。
+直接依赖有两个。 [`regex`](https://docs.rs/regex) 无法回避：手写正则引擎本身就是个大工程，而它是
+纯 Rust，且 `bytes` API 能处理非 UTF-8 文件名，它连带引入四个传递依赖（`regex-automata`、
+`regex-syntax`、`aho-corasick`、`memchr`）。[`libc`](https://docs.rs/libc) 只用于输出列：
+本地时间要调 `localtime_r`，用户名和组名要调 `getpwuid_r`/`getgrgid_r`。
 
 ## 语言与文档约定
 

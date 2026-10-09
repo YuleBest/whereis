@@ -1,6 +1,7 @@
 mod error;
 mod ext4;
 mod i18n;
+mod listing;
 mod matcher;
 mod mounts;
 mod sort;
@@ -13,6 +14,7 @@ use std::time::Instant;
 use error::{Error, Result};
 use ext4::{EntryKind, Hit, TypeFilter};
 use i18n::Lang;
+use listing::{LineSpec, Names};
 use matcher::{Matcher, PathFilter};
 use sort::{SortDir, SortKey};
 
@@ -37,6 +39,7 @@ struct Args {
     device: Option<PathBuf>,
     path: Option<String>,
     types: Option<TypeFilter>,
+    line: Option<String>,
     threads: Option<usize>,
     regex: bool,
     limit: Option<usize>,
@@ -103,6 +106,11 @@ fn run(argv: &[String]) -> Result<()> {
         Some(value) => Some(PathFilter::literal(value)?),
         None => None,
     };
+    let line_spec = match (&args.line, args.clean) {
+        (_, true) => None,
+        (Some(value), false) => Some(LineSpec::parse(value)?),
+        (None, false) => Some(LineSpec::default()),
+    };
 
     let started = Instant::now();
     let result = scanner.scan(
@@ -112,17 +120,24 @@ fn run(argv: &[String]) -> Result<()> {
     )?;
     let mut hits = result.hits;
 
-    // Only pay for inode reads when the requested key actually needs them.
-    if args.sort_key.needs_metadata() && !hits.is_empty() {
+    // The listing columns and size/mtime sorting both live in the inode.
+    if (line_spec.is_some() || args.sort_key.needs_metadata()) && !hits.is_empty() {
         scanner.fill_metadata(&mut hits)?;
     }
     sort::apply(&mut hits, args.sort_key, args.sort_dir);
     let elapsed = started.elapsed();
+    let mut stats = result.stats;
+    scanner.refresh_stats(&mut stats);
 
     let matched = hits.len();
     if let Some(limit) = args.limit {
         hits.truncate(limit);
     }
+
+    let mut names = Names::default();
+    let widths = line_spec
+        .as_ref()
+        .map(|spec| listing::measure(spec, &hits, &mut names));
 
     let stdout = io::stdout();
     let no_color = std::env::var_os("NO_COLOR").is_some_and(|value| !value.is_empty());
@@ -144,6 +159,10 @@ fn run(argv: &[String]) -> Result<()> {
                 break;
             }
         }
+        if let (Some(spec), Some(widths)) = (&line_spec, &widths) {
+            listing::write_row(&mut out, spec, widths, hit, &mut names)
+                .map_err(|e| Error::io(i18n::t!(io_write_stdout), e))?;
+        }
         write_path(&mut out, hit, color).map_err(|e| Error::io(i18n::t!(io_write_stdout), e))?;
         printed += 1;
     }
@@ -158,7 +177,6 @@ fn run(argv: &[String]) -> Result<()> {
         i18n::t!(matches_limited, shown = printed, total = matched)
     };
     if !args.clean {
-        let stats = result.stats;
         eprintln!(
             "wis: {}",
             i18n::t!(
@@ -184,6 +202,7 @@ fn parse_args(argv: &[String]) -> Result<Args> {
     let mut type_files = false;
     let mut type_dirs = false;
     let mut type_given = false;
+    let mut line: Option<String> = None;
     let mut threads: Option<usize> = None;
     let mut regex = false;
     let mut clean = false;
@@ -230,6 +249,9 @@ fn parse_args(argv: &[String]) -> Result<Args> {
                     }
                 }
                 type_given = true;
+            }
+            "--line" => {
+                line = Some(value_of(argv, &mut i, "--line")?);
             }
             "-n" | "--limit" => {
                 let value = value_of(argv, &mut i, "--limit")?;
@@ -296,6 +318,7 @@ fn parse_args(argv: &[String]) -> Result<Args> {
             files: type_files,
             dirs: type_dirs,
         }),
+        line,
         threads,
         regex,
         limit,
@@ -424,6 +447,10 @@ mod tests {
             path: b"/etc".to_vec(),
             inode: 1,
             kind: EntryKind::Dir,
+            mode: 0o755,
+            nlink: 2,
+            uid: 0,
+            gid: 0,
             size: 0,
             mtime: 0,
         };
@@ -431,6 +458,10 @@ mod tests {
             path: b"/etc/passwd".to_vec(),
             inode: 2,
             kind: EntryKind::File,
+            mode: 0o644,
+            nlink: 1,
+            uid: 0,
+            gid: 0,
             size: 0,
             mtime: 0,
         };

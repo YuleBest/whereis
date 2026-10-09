@@ -68,6 +68,8 @@ enum Key {
     Slice { start: u32, len: u32 },
     /// A number read from the inode.
     Number(u64),
+    /// A timestamp read from the inode.
+    Time(i64),
 }
 
 pub fn apply(hits: &mut Vec<Hit>, key: SortKey, dir: SortDir) {
@@ -115,7 +117,7 @@ fn prepare(key: SortKey, hit: &Hit) -> Key {
             Key::Slice { start, len }
         }
         SortKey::Size => Key::Number(hit.size),
-        SortKey::Mtime => Key::Number(hit.mtime as u64),
+        SortKey::Mtime => Key::Time(hit.mtime),
     }
 }
 
@@ -126,6 +128,7 @@ fn compare(ka: &Key, ha: &Hit, kb: &Key, hb: &Hit) -> Ordering {
             slice(&ha.path, *a, *n).cmp(slice(&hb.path, *b, *m))
         }
         (Key::Number(a), Key::Number(b)) => a.cmp(b),
+        (Key::Time(a), Key::Time(b)) => a.cmp(b),
         _ => Ordering::Equal,
     }
 }
@@ -167,11 +170,15 @@ mod tests {
     use super::*;
     use crate::ext4::EntryKind;
 
-    fn hit(path: &str, size: u64, mtime: u32) -> Hit {
+    fn hit(path: &str, size: u64, mtime: i64) -> Hit {
         Hit {
             path: path.as_bytes().to_vec(),
             inode: 1,
             kind: EntryKind::File,
+            mode: 0o644,
+            nlink: 1,
+            uid: 0,
+            gid: 0,
             size,
             mtime,
         }

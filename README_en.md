@@ -41,9 +41,10 @@ with `-r` it is a regular expression.
 | `-d`, `--device <PATH>` | Scan this block device instead of the filesystem mounted at `/` |
 | `-p`, `--path <PATH>` | Only search inside this absolute directory; with `-r`, PATH is a regular expression and every matching directory is searched recursively |
 | `-t`, `--type <TYPE>[,TYPE2]...` | Search only the given types, comma-separated or repeated: `file`/`f` and `directory`/`d`; no filtering when omitted |
+| `--line <FIELDS>` | Columns before the path and their order, comma-separated: `mode`, `mtime`, `size[=auto\|b\|k\|m\|g\|t]`, `user`, `group`, `nlink` (default `mode,mtime,size`) |
 | `-j`, `--threads <N>` | Concurrent metadata reads to keep in flight (default 16) |
 | `--lang <LANG>` | Force the output language: `zh-Hans`, `zh-Hant`, `en` |
-| `-c`, `--clean` | Suppress the summary line on stderr |
+| `-c`, `--clean` | Print bare paths only: no columns, no summary (`--line` is ignored) |
 | `-q`, `--quiet` | Never ask before printing more than 1000 results |
 | `-h`, `--help` / `-V`, `--version` | Print help / print version |
 
@@ -53,11 +54,25 @@ $ sudo wis -r '^libssl\.so\.[0-9]+$'     # regular expression
 $ sudo wis -s size desc -n 10 '\.log$'   # the 10 biggest logs
 ```
 
-Results go to stdout, one path per line; the summary goes to stderr, so piping
-stdout is clean.
+Each line is one result, and by default three columns come before the path:
+`mode` (four-digit octal permissions), `mtime` (local time, `2025-01-01 00:00:00`)
+and `size` (adaptive 1024-based units). Widths are aligned across the result set,
+so the path always starts in the same column:
+
+```console
+$ sudo wis sshd_config
+0644 2026-10-08 01:23:45 5.2K /etc/ssh/sshd_config
+```
+
+`-c` prints bare paths. `--line` customises the columns and their order, for
+example `--line user,group,nlink,size=k,mtime`; column order is display order and
+result sorting is still `-s`. User and group names are resolved through the
+system NSS, falling back to numbers. The summary goes to stderr only, so stdout
+carries nothing but results.
+
 Directories are shown in blue on a terminal; pipes, redirects, `NO_COLOR` and
-`TERM=dumb` get plain paths, and the path itself is never altered or given a
-trailing slash.
+`TERM=dumb` get no colour. The path itself is never altered or given a trailing
+slash.
 `file` means a regular file; symlinks, devices, FIFOs and sockets appear only
 without `-t`.
 

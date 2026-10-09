@@ -27,6 +27,7 @@ on stderr reports the bytes, inodes and extent nodes actually read.
 | `src/main.rs` | Argument parsing, language resolution, orchestration, output |
 | `src/ext4.rs` | ext4 on-disk decoder and the batched walk |
 | `src/i18n.rs` | Language selection and the three-language message catalogue |
+| `src/listing.rs` | Output columns: `--line` parsing, widths, mode/time/size and user rendering |
 | `src/matcher.rs` | Substring and regular-expression matching |
 | `src/sort.rs` | Sort keys and directions |
 | `src/mounts.rs` | Parses `/proc/self/mounts`, finds a mount by longest prefix |
@@ -40,10 +41,12 @@ ourselves is the whole point. Two things are hand-rolled rather than pulled in:
 locale detection (the rules are a handful of lines, see `src/i18n.rs`) and the C
 prototype.
 
-The one real dependency is [`regex`](https://docs.rs/regex), because hand-rolling
-a regex engine would be a project in itself, and it is pure Rust with a `bytes`
-API that handles non-UTF-8 names. It pulls in four transitive crates
-(`regex-automata`, `regex-syntax`, `aho-corasick`, `memchr`).
+There are two direct dependencies. [`regex`](https://docs.rs/regex) is
+unavoidable: hand-rolling a regex engine would be a project in itself, and it is
+pure Rust with a `bytes` API that handles non-UTF-8 names, pulling in four
+transitive crates (`regex-automata`, `regex-syntax`, `aho-corasick`, `memchr`).
+[`libc`](https://docs.rs/libc) is only used by the listing columns: `localtime_r`
+for local timestamps and `getpwuid_r`/`getgrgid_r` for user and group names.
 
 ## Language and documentation conventions
 
