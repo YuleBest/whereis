@@ -26,16 +26,18 @@ package is `ripgrep` and whose command is `rg`.
 ## Usage
 
 ```
-wis [OPTIONS] <NAME>
+wis [OPTIONS] <NAME>...
 ```
 
 `<NAME>` is matched against file *names*, never full paths, and always on raw
 bytes, so non-UTF-8 names work. By default it is a case-insensitive substring;
-with `-r` it is a regular expression.
+with `-r` it is a regular expression. Several names are OR'ed; with `-l` every
+name is parsed as a logical expression.
 
 | Option | Meaning |
 |---|---|
 | `-r`, `--regex` | Treat `<NAME>` as a regular expression |
+| `-l`, `--logical` | Treat every `<NAME>` as a logical expression: uppercase `AND`, `OR`, `NOT`, adjacent terms meaning AND, nested parentheses |
 | `-n`, `--limit <N>` | Print at most N results, applied after sorting |
 | `-s`, `--sort <KEY> [DIR]` | Sort by `path` (default), `name`, `ext`, `size` or `mtime`; direction `asc` (default) or `desc` |
 | `-d`, `--device <PATH>` | Scan this block device instead of the filesystem mounted at `/` |
@@ -54,6 +56,22 @@ $ sudo wis sshd_config                   # substring search
 $ sudo wis -r '^libssl\.so\.[0-9]+$'     # regular expression
 $ sudo wis -s size desc -n 10 '\.log$'   # the 10 biggest logs
 ```
+
+### Logical expressions
+
+With `-l`, uppercase `AND`, `OR` and `NOT` are operators, with `NOT` > `AND` >
+`OR` precedence; adjacent terms mean `AND`. Parentheses nest, and a
+double-quoted span is one literal term: in regex mode its parentheses and spaces
+are not syntax.
+
+```console
+$ sudo wis -l 'example AND ( .mp4 OR .mp3 )' 'apple NOT .txt'
+```
+
+This matches names that contain `example` and either `.mp4` or `.mp3`, or names
+that contain `apple` but not `.txt`. Names and expressions are OR'ed at the top
+level. To search for parentheses, quotes or an uppercase `AND` literally, quote
+the term: `"AND"`.
 
 Each line is one result, and by default three columns come before the path:
 `mode` (four-digit octal permissions), `mtime` (local time, `2025-01-01 00:00:00`)

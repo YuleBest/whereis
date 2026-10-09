@@ -27,6 +27,7 @@ sudo ./target/release/wis sshd_config
 | `src/i18n.rs` | 语言选择与三语消息目录 |
 | `src/history.rs` | 历史记录：定位状态文件、读写 NUL 分隔格式、保留最近 10 条 |
 | `src/listing.rs` | 输出列：`--line` 解析、列宽计算、权限位/时间/大小与用户名渲染 |
+| `src/logical.rs` | 名称查询：多名称 OR、`-l` 的词法与 AND/OR/NOT 递归下降解析 |
 | `src/matcher.rs` | 子串与正则匹配 |
 | `src/sort.rs` | 排序键与排序方向 |
 | `src/mounts.rs` | 解析 `/proc/self/mounts`，按最长前缀定位挂载点 |

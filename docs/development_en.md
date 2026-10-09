@@ -29,6 +29,7 @@ on stderr reports the bytes, inodes and extent nodes actually read.
 | `src/i18n.rs` | Language selection and the three-language message catalogue |
 | `src/history.rs` | History: state file location, NUL-separated records, last 10 kept |
 | `src/listing.rs` | Output columns: `--line` parsing, widths, mode/time/size and user rendering |
+| `src/logical.rs` | Name query: multiple names OR'ed, `-l` lexer and AND/OR/NOT parser |
 | `src/matcher.rs` | Substring and regular-expression matching |
 | `src/sort.rs` | Sort keys and directions |
 | `src/mounts.rs` | Parses `/proc/self/mounts`, finds a mount by longest prefix |

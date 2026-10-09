@@ -3,6 +3,7 @@ mod ext4;
 mod history;
 mod i18n;
 mod listing;
+mod logical;
 mod matcher;
 mod mounts;
 mod sort;
@@ -17,7 +18,8 @@ use error::{Error, Result};
 use ext4::{EntryKind, Hit, TypeFilter};
 use i18n::Lang;
 use listing::{LineSpec, Names};
-use matcher::{Matcher, PathFilter};
+use logical::Query;
+use matcher::PathFilter;
 use sort::{SortDir, SortKey};
 
 /// The scan is bound by device latency rather than by CPU, so this sits well
@@ -37,7 +39,7 @@ const COLOR_DIR: &[u8] = b"\x1b[1;34m";
 const COLOR_RESET: &[u8] = b"\x1b[0m";
 
 struct Args {
-    name: String,
+    names: Vec<String>,
     device: Option<PathBuf>,
     path: Option<String>,
     types: Option<TypeFilter>,
@@ -45,6 +47,7 @@ struct Args {
     base: Option<usize>,
     threads: Option<usize>,
     regex: bool,
+    logical: bool,
     limit: Option<usize>,
     sort_key: SortKey,
     sort_dir: SortDir,
@@ -120,10 +123,10 @@ fn run(argv: &[String]) -> Result<()> {
 
     let threads = args.threads.unwrap_or(DEFAULT_THREADS);
     let scanner = ext4::Scanner::open(&device, threads)?;
-    let matcher = if args.regex {
-        Matcher::regex(&args.name)?
+    let query = if args.logical {
+        Query::logical(&args.names, args.regex)?
     } else {
-        Matcher::substring(&args.name)
+        Query::simple(&args.names, args.regex)?
     };
     let path_filter = match &args.path {
         Some(value) if args.regex => Some(PathFilter::regex(value)?),
@@ -138,7 +141,7 @@ fn run(argv: &[String]) -> Result<()> {
 
     let started = Instant::now();
     let result = scanner.scan(
-        |name| matcher.is_match(name),
+        |name| query.is_match(name),
         path_filter.as_ref(),
         args.types.as_ref(),
         base.as_ref(),
@@ -224,7 +227,7 @@ fn run(argv: &[String]) -> Result<()> {
 }
 
 fn parse_args(argv: &[String]) -> Result<Args> {
-    let mut name: Option<String> = None;
+    let mut names: Vec<String> = Vec::new();
     let mut device: Option<PathBuf> = None;
     let mut path: Option<String> = None;
     let mut type_files = false;
@@ -234,6 +237,7 @@ fn parse_args(argv: &[String]) -> Result<Args> {
     let mut base: Option<usize> = None;
     let mut threads: Option<usize> = None;
     let mut regex = false;
+    let mut logical = false;
     let mut clean = false;
     let mut quiet = false;
     let mut limit: Option<usize> = None;
@@ -254,6 +258,7 @@ fn parse_args(argv: &[String]) -> Result<Args> {
                 std::process::exit(0);
             }
             "-r" | "--regex" => regex = true,
+            "-l" | "--logical" => logical = true,
             "-c" | "--clean" => clean = true,
             "-q" | "--quiet" => quiet = true,
             "-d" | "--device" => {
@@ -340,17 +345,16 @@ fn parse_args(argv: &[String]) -> Result<Args> {
                 return Err(Error::usage(i18n::t!(err_unknown_option, option = other)));
             }
             _ => {
-                if name.is_some() {
-                    return Err(Error::usage(i18n::t!(err_expected_one_name)));
-                }
-                name = Some(arg.to_owned());
+                names.push(arg.to_owned());
             }
         }
     }
 
-    let name = name.ok_or_else(|| Error::usage(i18n::t!(err_missing_name)))?;
+    if names.is_empty() {
+        return Err(Error::usage(i18n::t!(err_missing_name)));
+    }
     Ok(Args {
-        name,
+        names,
         device,
         path,
         types: type_given.then_some(TypeFilter {
@@ -361,6 +365,7 @@ fn parse_args(argv: &[String]) -> Result<Args> {
         base,
         threads,
         regex,
+        logical,
         limit,
         sort_key,
         sort_dir,
@@ -489,6 +494,19 @@ mod tests {
         assert!(parse_args(&["-b".into(), "0".into(), "name".into()]).is_err());
         assert!(parse_args(&["-b".into(), "x".into(), "name".into()]).is_err());
         assert!(parse_args(&["name".into()]).unwrap().base.is_none());
+    }
+
+    #[test]
+    fn multiple_names_and_logical_flag_are_parsed() {
+        let args = parse_args(&["foo".into(), "bar".into()]).unwrap();
+        assert_eq!(args.names, ["foo", "bar"]);
+        assert!(!args.logical);
+
+        let args = parse_args(&["-l".into(), "foo AND bar".into(), "baz".into()]).unwrap();
+        assert!(args.logical);
+        assert_eq!(args.names.len(), 2);
+
+        assert!(parse_args(&["-l".into()]).is_err());
     }
 
     #[test]

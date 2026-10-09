@@ -127,7 +127,6 @@ pub struct Text {
 
     // argument errors
     pub err_unknown_option: &'static str,
-    pub err_expected_one_name: &'static str,
     pub err_missing_name: &'static str,
     pub err_option_needs_value: &'static str,
     pub err_not_a_number: &'static str,
@@ -140,6 +139,10 @@ pub struct Text {
     pub err_unknown_size_unit: &'static str,
     pub err_base_min: &'static str,
     pub err_base_out_of_range: &'static str,
+    pub err_logical_empty: &'static str,
+    pub err_logical_operand: &'static str,
+    pub err_logical_paren: &'static str,
+    pub err_logical_quote: &'static str,
 
     // top-level errors
     pub err_not_ext4: &'static str,
@@ -299,19 +302,30 @@ static EN: Text = Text {
             "sudo wis -s size desc -n 10 '\\.log$'",
             "the 10 biggest log files",
         ),
+        (
+            "sudo wis -l 'example AND ( .mp4 OR .mp3 )' 'apple NOT .txt'",
+            "logical expressions",
+        ),
     ],
     usage_header: "Usage:",
-    usage_synopsis: "wis [OPTIONS] <NAME>",
+    usage_synopsis: "wis [OPTIONS] <NAME>...",
     args_header: "Arguments:",
-    arg_name: "<NAME>",
+    arg_name: "<NAME>...",
     arg_help: "What to look for in a file name. A case-insensitive substring by\n\
-               default, or a regular expression with -r.",
+               default, or a regular expression with -r. Several names are OR'ed;\n\
+               with -l every name is a logical expression.",
     options_header: "Options:",
     options: &[
         (
             "-r, --regex",
             "Regular expression. <NAME> is matched case-insensitively by\n\
              default; add (?-i) to opt out.",
+        ),
+        (
+            "-l, --logical",
+            "Treat every name as a logical expression. Uppercase AND, OR and\n\
+             NOT combine terms; adjacent terms mean AND and parentheses nest.\n\
+             Multiple names are OR'ed. Quote a term to search it literally.",
         ),
         (
             "-n, --limit <N>",
@@ -400,7 +414,6 @@ static EN: Text = Text {
     note_history_not_saved: "wis: note: history not saved: {error}",
 
     err_unknown_option: "unknown option `{option}`",
-    err_expected_one_name: "expected exactly one NAME",
     err_missing_name: "missing NAME",
     err_option_needs_value: "{option} requires a value",
     err_not_a_number: "`{value}` is not a number",
@@ -413,6 +426,10 @@ static EN: Text = Text {
     err_unknown_size_unit: "unknown size unit `{unit}` (expected one of: {units})",
     err_base_min: "`--base` must be at least 1",
     err_base_out_of_range: "history has only {count} record(s), so `--base {num}` does not exist",
+    err_logical_empty: "empty logical expression",
+    err_logical_operand: "missing an operand in `{expr}`",
+    err_logical_paren: "unbalanced parentheses in `{expr}`",
+    err_logical_quote: "unterminated quote in `{expr}`",
 
     err_not_ext4:
         "{device} is not an ext4 filesystem (superblock magic 0x{magic}, expected 0xef53)",
@@ -469,18 +486,29 @@ static ZH_HANS: Text = Text {
             "sudo wis -s size desc -n 10 '\\.log$'",
             "按大小倒序取前 10 个日志",
         ),
+        (
+            "sudo wis -l 'example AND ( .mp4 OR .mp3 )' 'apple NOT .txt'",
+            "逻辑表达式",
+        ),
     ],
     usage_header: "用法:",
-    usage_synopsis: "wis [选项] <名称>",
+    usage_synopsis: "wis [选项] <名称>...",
     args_header: "参数:",
-    arg_name: "<名称>",
-    arg_help: "要搜索的文件名内容。默认按不区分大小写的子串匹配，加 -r 后\n\
-               按正则表达式匹配。",
+    arg_name: "<名称>...",
+    arg_help: "要搜索的文件名内容，默认按不区分大小写的子串匹配，加 -r 后按\n\
+               正则表达式匹配。多个名称之间是 OR；加 -l 后每个名称是逻辑表达式。",
     options_header: "选项:",
     options: &[
         (
             "-r, --regex",
             "正则匹配。默认不区分大小写，可用 (?-i) 关闭。",
+        ),
+        (
+            "-l, --logical",
+            "把每个名称当作逻辑表达式。\n\
+             \n\
+             大写 AND、OR、NOT 组合各项，相邻两项等价于 AND，可用括号嵌套；\n\
+             多个名称之间是 OR。要用字面词搜索时加双引号。",
         ),
         ("-n, --limit <N>", "限制输出条数，在排序之后应用。"),
         (
@@ -559,7 +587,6 @@ static ZH_HANS: Text = Text {
     note_history_not_saved: "wis: 提示：历史记录未保存：{error}",
 
     err_unknown_option: "未知选项 `{option}`",
-    err_expected_one_name: "只接受一个 <名称> 参数",
     err_missing_name: "缺少 <名称> 参数",
     err_option_needs_value: "{option} 需要一个值",
     err_not_a_number: "`{value}` 不是有效的数字",
@@ -572,6 +599,10 @@ static ZH_HANS: Text = Text {
     err_unknown_size_unit: "未知的大小单位 `{unit}`（可选：{units}）",
     err_base_min: "`--base` 至少为 1",
     err_base_out_of_range: "历史记录只有 {count} 条，`--base {num}` 不存在",
+    err_logical_empty: "空的逻辑表达式",
+    err_logical_operand: "`{expr}` 中缺少操作数",
+    err_logical_paren: "`{expr}` 的括号不配对",
+    err_logical_quote: "`{expr}` 中的引号没有闭合",
 
     err_not_ext4: "{device} 不是 ext4 文件系统（超级块 magic 为 0x{magic}，应为 0xef53）",
     err_unsupported: "不支持：{what}",
@@ -625,18 +656,29 @@ static ZH_HANT: Text = Text {
             "sudo wis -s size desc -n 10 '\\.log$'",
             "依大小倒序取前 10 個日誌",
         ),
+        (
+            "sudo wis -l 'example AND ( .mp4 OR .mp3 )' 'apple NOT .txt'",
+            "邏輯表達式",
+        ),
     ],
     usage_header: "用法:",
-    usage_synopsis: "wis [選項] <名稱>",
+    usage_synopsis: "wis [選項] <名稱>...",
     args_header: "參數:",
-    arg_name: "<名稱>",
-    arg_help: "要搜尋的檔案名稱內容。預設為不分大小寫的子字串，加 -r 後\n\
-               視為正規表達式。",
+    arg_name: "<名稱>...",
+    arg_help: "要搜尋的檔案名稱內容，預設為不分大小寫的子字串，加 -r 後視為\n\
+               正規表達式。多個名稱之間是 OR；加 -l 後每個名稱是邏輯表達式。",
     options_header: "選項:",
     options: &[
         (
             "-r, --regex",
             "以正規表達式比對。預設不分大小寫，可用 (?-i) 關閉。",
+        ),
+        (
+            "-l, --logical",
+            "把每個名稱當作邏輯表達式。\n\
+             \n\
+             大寫 AND、OR、NOT 組合各項，相鄰兩項等價於 AND，可用括號嵌套；\n\
+             多個名稱之間是 OR。要用字面詞搜尋時加雙引號。",
         ),
         ("-n, --limit <N>", "限制輸出筆數，於排序之後套用。"),
         (
@@ -715,7 +757,6 @@ static ZH_HANT: Text = Text {
     note_history_not_saved: "wis: 提示：歷史記錄未儲存：{error}",
 
     err_unknown_option: "未知的選項 `{option}`",
-    err_expected_one_name: "只接受一個 <名稱> 參數",
     err_missing_name: "缺少 <名稱> 參數",
     err_option_needs_value: "{option} 需要一個值",
     err_not_a_number: "`{value}` 不是有效的數字",
@@ -728,6 +769,10 @@ static ZH_HANT: Text = Text {
     err_unknown_size_unit: "未知的大小單位 `{unit}`（可選：{units}）",
     err_base_min: "`--base` 至少為 1",
     err_base_out_of_range: "歷史記錄只有 {count} 筆，`--base {num}` 不存在",
+    err_logical_empty: "空的邏輯表達式",
+    err_logical_operand: "`{expr}` 中缺少運算元",
+    err_logical_paren: "`{expr}` 的括號不配對",
+    err_logical_quote: "`{expr}` 中的引號沒有閉合",
 
     err_not_ext4: "{device} 不是 ext4 檔案系統（超級區塊 magic 為 0x{magic}，應為 0xef53）",
     err_unsupported: "不支援：{what}",
@@ -814,7 +859,6 @@ mod tests {
                 text.note_history_ignored,
                 text.note_history_not_saved,
                 text.err_unknown_option,
-                text.err_expected_one_name,
                 text.err_missing_name,
                 text.err_option_needs_value,
                 text.err_not_a_number,
@@ -827,6 +871,10 @@ mod tests {
                 text.err_unknown_size_unit,
                 text.err_base_min,
                 text.err_base_out_of_range,
+                text.err_logical_empty,
+                text.err_logical_operand,
+                text.err_logical_paren,
+                text.err_logical_quote,
                 text.err_not_ext4,
                 text.err_unsupported,
                 text.err_corrupt,
@@ -908,7 +956,7 @@ mod tests {
             found
         }
 
-        let pairs: [(&str, &str, &str); 28] = [
+        let pairs: [(&str, &str, &str); 31] = [
             (EN.summary, ZH_HANS.summary, ZH_HANT.summary),
             (EN.matches_all, ZH_HANS.matches_all, ZH_HANT.matches_all),
             (
@@ -987,6 +1035,21 @@ mod tests {
                 ZH_HANS.err_base_out_of_range,
                 ZH_HANT.err_base_out_of_range,
             ),
+            (
+                EN.err_logical_operand,
+                ZH_HANS.err_logical_operand,
+                ZH_HANT.err_logical_operand,
+            ),
+            (
+                EN.err_logical_paren,
+                ZH_HANS.err_logical_paren,
+                ZH_HANT.err_logical_paren,
+            ),
+            (
+                EN.err_logical_quote,
+                ZH_HANS.err_logical_quote,
+                ZH_HANT.err_logical_quote,
+            ),
             (EN.err_not_ext4, ZH_HANS.err_not_ext4, ZH_HANT.err_not_ext4),
             (
                 EN.err_unsupported,
@@ -1044,6 +1107,7 @@ mod tests {
             let text = usage(lang);
             for option in [
                 "--regex",
+                "--logical",
                 "--limit",
                 "--sort",
                 "--device",
