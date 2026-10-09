@@ -89,6 +89,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The changelog step needs the tags and history, not just the tag's
+          # single commit.
+          fetch-depth: 0
 
       - uses: actions/download-artifact@v4
         with:
@@ -101,6 +105,26 @@ jobs:
           sha256sum * > SHA256SUMS
           cat SHA256SUMS
 
+      - name: Changelog
+        run: |
+          previous="$(git describe --tags --abbrev=0 --match 'v*' \
+            "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+          {
+            echo "## What's Changed"
+            echo
+            if [ -n "${previous}" ]; then
+              git log --no-merges --pretty='- %s (`%h`)' \
+                "${previous}..${GITHUB_REF_NAME}"
+            else
+              git log --no-merges --pretty='- %s (`%h`)' "${GITHUB_REF_NAME}"
+            fi
+            echo
+            if [ -n "${previous}" ]; then
+              echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${previous}...${GITHUB_REF_NAME}"
+            fi
+          } > NOTES.md
+          cat NOTES.md
+
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -108,9 +132,10 @@ jobs:
           # Re-running the workflow should update the release, not fail on it.
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+            gh release edit "$GITHUB_REF_NAME" --notes-file NOTES.md
           else
             gh release create "$GITHUB_REF_NAME" \
               --title "$GITHUB_REF_NAME" \
-              --generate-notes \
+              --notes-file NOTES.md \
               dist/*
           fi
