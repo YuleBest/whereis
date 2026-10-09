@@ -5,7 +5,7 @@ mod matcher;
 mod mounts;
 mod sort;
 
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
@@ -21,6 +21,11 @@ use sort::{SortDir, SortKey};
 /// 0.68 s, 32 threads 0.55 s.
 const DEFAULT_THREADS: usize = 16;
 
+/// Lines to print before asking whether to keep going. The question only appears
+/// when stdin, stdout and stderr are all terminals, so pipes, redirects and
+/// scripts always get the full output.
+const PROMPT_AFTER: usize = 1000;
+
 struct Args {
     name: String,
     device: Option<PathBuf>,
@@ -30,6 +35,7 @@ struct Args {
     sort_key: SortKey,
     sort_dir: SortDir,
     clean: bool,
+    quiet: bool,
 }
 
 fn main() -> ExitCode {
@@ -102,20 +108,37 @@ fn run(argv: &[String]) -> Result<()> {
     }
 
     let stdout = io::stdout();
+    let interactive = !args.quiet
+        && io::stdin().is_terminal()
+        && io::stderr().is_terminal()
+        && stdout.is_terminal();
     let mut out = io::BufWriter::new(stdout.lock());
+    let mut printed = 0usize;
+    let mut stopped = false;
     for hit in &hits {
+        if printed == PROMPT_AFTER && interactive {
+            out.flush()
+                .map_err(|e| Error::io(i18n::t!(io_flush_stdout), e))?;
+            if !confirm_continue(printed, hits.len() - printed) {
+                stopped = true;
+                break;
+            }
+        }
         out.write_all(&hit.path)
             .map_err(|e| Error::io(i18n::t!(io_write_stdout), e))?;
         out.write_all(b"\n")
             .map_err(|e| Error::io(i18n::t!(io_write_stdout), e))?;
+        printed += 1;
     }
     out.flush()
         .map_err(|e| Error::io(i18n::t!(io_flush_stdout), e))?;
 
-    let shown = if hits.len() == matched {
+    let shown = if stopped {
+        i18n::t!(matches_stopped, shown = printed, total = matched)
+    } else if printed == matched {
         i18n::t!(matches_all, n = matched)
     } else {
-        i18n::t!(matches_limited, shown = hits.len(), total = matched)
+        i18n::t!(matches_limited, shown = printed, total = matched)
     };
     if !args.clean {
         let stats = result.stats;
@@ -143,6 +166,7 @@ fn parse_args(argv: &[String]) -> Result<Args> {
     let mut threads: Option<usize> = None;
     let mut regex = false;
     let mut clean = false;
+    let mut quiet = false;
     let mut limit: Option<usize> = None;
     let mut sort_key = SortKey::Path;
     let mut sort_dir = SortDir::Asc;
@@ -162,6 +186,7 @@ fn parse_args(argv: &[String]) -> Result<Args> {
             }
             "-r" | "--regex" => regex = true,
             "-c" | "--clean" => clean = true,
+            "-q" | "--quiet" => quiet = true,
             "-d" | "--device" => {
                 device = Some(PathBuf::from(value_of(argv, &mut i, "--device")?));
             }
@@ -231,7 +256,26 @@ fn parse_args(argv: &[String]) -> Result<Args> {
         sort_key,
         sort_dir,
         clean,
+        quiet,
     })
+}
+
+/// Once [`PROMPT_AFTER`] lines are on screen, ask whether to keep going. Only a
+/// yes continues; end of input or a read error counts as no.
+fn confirm_continue(shown: usize, remaining: usize) -> bool {
+    eprint!(
+        "{}",
+        i18n::t!(prompt_continue, shown = shown, remaining = remaining)
+    );
+    let mut answer = String::new();
+    match io::stdin().read_line(&mut answer) {
+        Ok(_) => answer_is_yes(&answer),
+        Err(_) => false,
+    }
+}
+
+fn answer_is_yes(answer: &str) -> bool {
+    matches!(answer.trim().chars().next(), Some('y' | 'Y'))
 }
 
 fn value_of(argv: &[String], i: &mut usize, option: &str) -> Result<String> {
@@ -278,4 +322,30 @@ fn resolve_root_device() -> Result<PathBuf> {
     }
 
     Ok(PathBuf::from(&entry.source))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_y_continues() {
+        for yes in ["y", "Y", "yes", " yes \n"] {
+            assert!(answer_is_yes(yes), "{yes:?}");
+        }
+        for no in ["", "\n", "n", "no", "sure"] {
+            assert!(!answer_is_yes(no), "{no:?}");
+        }
+    }
+
+    #[test]
+    fn quiet_flag_is_accepted_in_both_spellings() {
+        assert!(parse_args(&["-q".into(), "name".into()]).unwrap().quiet);
+        assert!(
+            parse_args(&["--quiet".into(), "name".into()])
+                .unwrap()
+                .quiet
+        );
+        assert!(!parse_args(&["name".into()]).unwrap().quiet);
+    }
 }

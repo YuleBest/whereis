@@ -42,6 +42,7 @@ with `-r` it is a regular expression.
 | `-j`, `--threads <N>` | Concurrent metadata reads to keep in flight (default 16) |
 | `--lang <LANG>` | Force the output language: `zh-Hans`, `zh-Hant`, `en` |
 | `-c`, `--clean` | Suppress the summary line on stderr |
+| `-q`, `--quiet` | Never ask before printing more than 1000 results |
 | `-h`, `--help` / `-V`, `--version` | Print help / print version |
 
 ```console
@@ -52,6 +53,11 @@ $ sudo wis -s size desc -n 10 '\.log$'   # the 10 biggest logs
 
 Results go to stdout, one path per line; the summary goes to stderr, so piping
 stdout is clean.
+
+When a run would print more than 1000 lines, the first 1000 go to stdout and a
+question on stderr asks whether to continue; only `y` prints the rest. The
+question appears only when stdin, stdout and stderr are all terminals, so pipes,
+redirects and scripts are never interrupted.
 
 ## Languages
 

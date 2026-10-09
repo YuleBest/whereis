@@ -115,6 +115,7 @@ pub struct Text {
     pub opt_threads: &'static str,
     pub opt_lang: &'static str,
     pub opt_clean: &'static str,
+    pub opt_quiet: &'static str,
     pub opt_help: &'static str,
     pub opt_version: &'static str,
     pub usage_footer: &'static str,
@@ -124,6 +125,8 @@ pub struct Text {
     pub summary: &'static str,
     pub matches_all: &'static str,
     pub matches_limited: &'static str,
+    pub matches_stopped: &'static str,
+    pub prompt_continue: &'static str,
     pub note_other_ext4: &'static str,
 
     // argument errors
@@ -242,6 +245,7 @@ pub fn usage(lang: Lang) -> String {
         text.opt_threads,
         text.opt_lang,
         text.opt_clean,
+        text.opt_quiet,
         text.opt_help,
         text.opt_version,
     ] {
@@ -280,6 +284,7 @@ static EN: Text = Text {
     opt_lang: "    --lang <LANG>           Force the output language: zh-Hans, zh-Hant, en\n\
                \x20                           (default: from LC_ALL, LANGUAGE, LC_MESSAGES, LANG)",
     opt_clean: "    -c, --clean             Suppress the summary line on stderr",
+    opt_quiet: "    -q, --quiet             Never ask before printing more than 1000 results",
     opt_help: "    -h, --help              Print this help",
     opt_version: "    -V, --version           Print version",
     usage_footer: "`size` and `mtime` cost one extra inode read per match, because the walk itself\n\
@@ -290,6 +295,8 @@ static EN: Text = Text {
               ({inodes} inodes, {nodes} extent nodes) on {threads} threads",
     matches_all: "{n} match(es)",
     matches_limited: "{shown} of {total} match(es)",
+    matches_stopped: "{shown} of {total} match(es) (output stopped)",
+    prompt_continue: "wis: {remaining} more result(s) after the first {shown}; continue? [y/N] ",
     note_other_ext4: "wis: note: {device} at {target} is a separate ext4 filesystem and is not \
                       searched yet",
 
@@ -362,6 +369,7 @@ static ZH_HANS: Text = Text {
     opt_lang: "    --lang <语言>        强制指定输出语言：zh-Hans、zh-Hant、en\n\
                \x20                        （默认从 LC_ALL、LANGUAGE、LC_MESSAGES、LANG 推断）",
     opt_clean: "    -c, --clean          不输出 stderr 上的统计信息",
+    opt_quiet: "    -q, --quiet          输出超过 1000 行时也不询问，直接全部输出",
     opt_help: "    -h, --help           显示本帮助",
     opt_version: "    -V, --version        显示版本",
     usage_footer:
@@ -372,6 +380,8 @@ static ZH_HANS: Text = Text {
               （{inodes} 个 inode、{nodes} 个 extent 节点），{threads} 个线程",
     matches_all: "{n} 条命中",
     matches_limited: "{total} 条命中中的 {shown} 条",
+    matches_stopped: "{total} 条命中中的 {shown} 条（已停止输出）",
+    prompt_continue: "wis: 已输出 {shown} 条，还有 {remaining} 条；继续输出？[y/N] ",
     note_other_ext4: "wis: 提示：{device}（挂载于 {target}）是另一个 ext4 文件系统，暂不搜索",
 
     err_unknown_option: "未知选项 `{option}`",
@@ -439,6 +449,7 @@ static ZH_HANT: Text = Text {
     opt_lang: "    --lang <語言>        強制指定輸出語言：zh-Hans、zh-Hant、en\n\
                \x20                        （預設由 LC_ALL、LANGUAGE、LC_MESSAGES、LANG 推斷）",
     opt_clean: "    -c, --clean          不輸出 stderr 上的統計資訊",
+    opt_quiet: "    -q, --quiet          輸出超過 1000 行時也不詢問，直接全部輸出",
     opt_help: "    -h, --help           顯示本說明",
     opt_version: "    -V, --version        顯示版本",
     usage_footer: "以 size 和 mtime 排序時，每筆命中需額外讀取一次 inode，因為走訪本身只讀取目錄的 inode。",
@@ -448,6 +459,8 @@ static ZH_HANT: Text = Text {
               （{inodes} 個 inode、{nodes} 個 extent 節點），{threads} 個執行緒",
     matches_all: "{n} 筆命中",
     matches_limited: "{total} 筆命中中的 {shown} 筆",
+    matches_stopped: "{total} 筆命中中的 {shown} 筆（已停止輸出）",
+    prompt_continue: "wis: 已輸出 {shown} 筆，還有 {remaining} 筆；繼續輸出？[y/N] ",
     note_other_ext4: "wis: 提示：{device}（掛載於 {target}）是另一個 ext4 檔案系統，暫不搜尋",
 
     err_unknown_option: "未知的選項 `{option}`",
@@ -533,6 +546,7 @@ mod tests {
                 text.opt_threads,
                 text.opt_lang,
                 text.opt_clean,
+                text.opt_quiet,
                 text.opt_help,
                 text.opt_version,
                 text.usage_footer,
@@ -540,6 +554,8 @@ mod tests {
                 text.summary,
                 text.matches_all,
                 text.matches_limited,
+                text.matches_stopped,
+                text.prompt_continue,
                 text.note_other_ext4,
                 text.err_unknown_option,
                 text.err_expected_one_name,
@@ -606,13 +622,23 @@ mod tests {
             found
         }
 
-        let pairs: [(&str, &str, &str); 17] = [
+        let pairs: [(&str, &str, &str); 19] = [
             (EN.summary, ZH_HANS.summary, ZH_HANT.summary),
             (EN.matches_all, ZH_HANS.matches_all, ZH_HANT.matches_all),
             (
                 EN.matches_limited,
                 ZH_HANS.matches_limited,
                 ZH_HANT.matches_limited,
+            ),
+            (
+                EN.matches_stopped,
+                ZH_HANS.matches_stopped,
+                ZH_HANT.matches_stopped,
+            ),
+            (
+                EN.prompt_continue,
+                ZH_HANS.prompt_continue,
+                ZH_HANT.prompt_continue,
             ),
             (
                 EN.note_other_ext4,
@@ -697,6 +723,7 @@ mod tests {
                 "--threads",
                 "--lang",
                 "--clean",
+                "--quiet",
             ] {
                 assert!(text.contains(option), "{lang:?} help omits {option}");
             }
