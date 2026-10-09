@@ -9,6 +9,7 @@ jobs:
   check:
     name: build, test, lint
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -28,12 +29,19 @@ jobs:
 
       # Releases ship a static musl binary, so build one here too: a breakage
       # then shows up on every push instead of at tag time.
-      - name: Static build
+      - name: Install musl tools
+        timeout-minutes: 5
         run: |
-          sudo apt-get update -qq
+          # -q, not -qq: a stalled mirror should leave a trace in the log.
+          sudo apt-get update -q
           sudo apt-get install -y -qq musl-tools
-          rustup target add x86_64-unknown-linux-musl
-          cargo build --release --locked --target x86_64-unknown-linux-musl
+
+      - name: Add musl target
+        timeout-minutes: 5
+        run: rustup target add x86_64-unknown-linux-musl
+
+      - name: Static build
+        run: cargo build --release --locked --target x86_64-unknown-linux-musl
 
       # Everything interesting needs a block device and root, which CI has
       # neither of, so this is as far as the binary can be exercised here. It

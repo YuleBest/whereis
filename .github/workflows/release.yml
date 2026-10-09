@@ -12,6 +12,7 @@ jobs:
   build:
     name: build ${{ matrix.target }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -27,11 +28,16 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
-      - name: Install toolchain
+      - name: Install musl tools
+        timeout-minutes: 5
         run: |
-          sudo apt-get update -qq
+          # -q, not -qq: a stalled mirror should leave a trace in the log.
+          sudo apt-get update -q
           sudo apt-get install -y -qq musl-tools
-          rustup target add ${{ matrix.target }}
+
+      - name: Add musl target
+        timeout-minutes: 5
+        run: rustup target add ${{ matrix.target }}
 
       - name: Tests
         run: cargo test
@@ -57,6 +63,7 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
