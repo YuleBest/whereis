@@ -40,6 +40,7 @@ with `-r` it is a regular expression.
 | `-s`, `--sort <KEY> [DIR]` | Sort by `path` (default), `name`, `ext`, `size` or `mtime`; direction `asc` (default) or `desc` |
 | `-d`, `--device <PATH>` | Scan this block device instead of the filesystem mounted at `/` |
 | `-p`, `--path <PATH>` | Only search inside this absolute directory; with `-r`, PATH is a regular expression and every matching directory is searched recursively |
+| `-t`, `--type <TYPE>[,TYPE2]...` | Search only the given types, comma-separated or repeated: `file`/`f` and `directory`/`d`; no filtering when omitted |
 | `-j`, `--threads <N>` | Concurrent metadata reads to keep in flight (default 16) |
 | `--lang <LANG>` | Force the output language: `zh-Hans`, `zh-Hant`, `en` |
 | `-c`, `--clean` | Suppress the summary line on stderr |
@@ -57,6 +58,8 @@ stdout is clean.
 Directories are shown in blue on a terminal; pipes, redirects, `NO_COLOR` and
 `TERM=dumb` get plain paths, and the path itself is never altered or given a
 trailing slash.
+`file` means a regular file; symlinks, devices, FIFOs and sockets appear only
+without `-t`.
 
 When a run would print more than 1000 lines, the first 1000 go to stdout and a
 question on stderr asks whether to continue; only `y` prints the rest. The

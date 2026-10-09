@@ -11,6 +11,7 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use error::{Error, Result};
+use ext4::{EntryKind, Hit, TypeFilter};
 use i18n::Lang;
 use matcher::{Matcher, PathFilter};
 use sort::{SortDir, SortKey};
@@ -35,6 +36,7 @@ struct Args {
     name: String,
     device: Option<PathBuf>,
     path: Option<String>,
+    types: Option<TypeFilter>,
     threads: Option<usize>,
     regex: bool,
     limit: Option<usize>,
@@ -103,7 +105,11 @@ fn run(argv: &[String]) -> Result<()> {
     };
 
     let started = Instant::now();
-    let result = scanner.scan(|name| matcher.is_match(name), path_filter.as_ref())?;
+    let result = scanner.scan(
+        |name| matcher.is_match(name),
+        path_filter.as_ref(),
+        args.types.as_ref(),
+    )?;
     let mut hits = result.hits;
 
     // Only pay for inode reads when the requested key actually needs them.
@@ -175,6 +181,9 @@ fn parse_args(argv: &[String]) -> Result<Args> {
     let mut name: Option<String> = None;
     let mut device: Option<PathBuf> = None;
     let mut path: Option<String> = None;
+    let mut type_files = false;
+    let mut type_dirs = false;
+    let mut type_given = false;
     let mut threads: Option<usize> = None;
     let mut regex = false;
     let mut clean = false;
@@ -204,6 +213,23 @@ fn parse_args(argv: &[String]) -> Result<Args> {
             }
             "-p" | "--path" => {
                 path = Some(value_of(argv, &mut i, "--path")?);
+            }
+            "-t" | "--type" => {
+                let value = value_of(argv, &mut i, "--type")?;
+                for token in value.split(',') {
+                    match token.trim() {
+                        "file" | "f" => type_files = true,
+                        "directory" | "d" => type_dirs = true,
+                        other => {
+                            return Err(Error::usage(i18n::t!(
+                                err_unknown_type,
+                                value = other,
+                                types = TypeFilter::NAMES
+                            )))
+                        }
+                    }
+                }
+                type_given = true;
             }
             "-n" | "--limit" => {
                 let value = value_of(argv, &mut i, "--limit")?;
@@ -266,6 +292,10 @@ fn parse_args(argv: &[String]) -> Result<Args> {
         name,
         device,
         path,
+        types: type_given.then_some(TypeFilter {
+            files: type_files,
+            dirs: type_dirs,
+        }),
         threads,
         regex,
         limit,
@@ -279,8 +309,8 @@ fn parse_args(argv: &[String]) -> Result<Args> {
 /// Write one result line, colouring directories when the terminal asked for it.
 /// The path bytes themselves are never altered: no trailing slash, and no escape
 /// sequences at all on a pipe.
-fn write_path(out: &mut impl Write, hit: &ext4::Hit, color: bool) -> io::Result<()> {
-    if color && hit.is_dir {
+fn write_path(out: &mut impl Write, hit: &Hit, color: bool) -> io::Result<()> {
+    if color && hit.kind == EntryKind::Dir {
         out.write_all(COLOR_DIR)?;
         out.write_all(&hit.path)?;
         out.write_all(COLOR_RESET)?;
@@ -390,17 +420,17 @@ mod tests {
 
     #[test]
     fn only_directories_are_coloured() {
-        let dir = ext4::Hit {
+        let dir = Hit {
             path: b"/etc".to_vec(),
             inode: 1,
-            is_dir: true,
+            kind: EntryKind::Dir,
             size: 0,
             mtime: 0,
         };
-        let file = ext4::Hit {
+        let file = Hit {
             path: b"/etc/passwd".to_vec(),
             inode: 2,
-            is_dir: false,
+            kind: EntryKind::File,
             size: 0,
             mtime: 0,
         };
@@ -410,5 +440,31 @@ mod tests {
         write_path(&mut out, &file, true).unwrap();
         write_path(&mut out, &dir, false).unwrap();
         assert_eq!(out, b"\x1b[1;34m/etc\x1b[0m\n/etc/passwd\n/etc\n");
+    }
+
+    #[test]
+    fn type_option_is_parsed_and_combined() {
+        let args = parse_args(&["-t".into(), "f".into(), "name".into()]).unwrap();
+        let types = args.types.unwrap();
+        assert!(types.files && !types.dirs);
+
+        let args = parse_args(&["-t".into(), "file, directory".into(), "name".into()]).unwrap();
+        let types = args.types.unwrap();
+        assert!(types.files && types.dirs);
+
+        let args = parse_args(&[
+            "-t".into(),
+            "d".into(),
+            "--type".into(),
+            "f".into(),
+            "name".into(),
+        ])
+        .unwrap();
+        let types = args.types.unwrap();
+        assert!(types.files && types.dirs);
+
+        assert!(parse_args(&["name".into()]).unwrap().types.is_none());
+        assert!(parse_args(&["-t".into(), "x".into(), "name".into()]).is_err());
+        assert!(parse_args(&["-t".into(), "f,".into(), "name".into()]).is_err());
     }
 }

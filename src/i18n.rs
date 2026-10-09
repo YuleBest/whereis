@@ -113,6 +113,7 @@ pub struct Text {
     pub opt_sort: &'static str,
     pub opt_device: &'static str,
     pub opt_path: &'static str,
+    pub opt_type: &'static str,
     pub opt_threads: &'static str,
     pub opt_lang: &'static str,
     pub opt_clean: &'static str,
@@ -140,6 +141,7 @@ pub struct Text {
     pub err_unknown_sort_key: &'static str,
     pub err_unknown_lang: &'static str,
     pub err_bad_path: &'static str,
+    pub err_unknown_type: &'static str,
 
     // top-level errors
     pub err_not_ext4: &'static str,
@@ -245,6 +247,7 @@ pub fn usage(lang: Lang) -> String {
         text.opt_sort,
         text.opt_device,
         text.opt_path,
+        text.opt_type,
         text.opt_threads,
         text.opt_lang,
         text.opt_clean,
@@ -285,6 +288,9 @@ static EN: Text = Text {
     opt_path: "    -p, --path <PATH>       Only search inside PATH, an absolute directory.\n\
                \x20                           With --regex, PATH is a regular expression and\n\
                \x20                           every directory it matches is searched recursively",
+    opt_type: "    -t, --type <TYPE>       Search only these types, comma-separated: file (f),\n\
+               \x20                           directory (d). Without this option every type is\n\
+               \x20                           searched",
     opt_threads: "    -j, --threads <N>       Concurrent metadata reads to keep in flight\n\
                   \x20                           (default 16; the scan is latency-bound, not CPU-bound)",
     opt_lang: "    --lang <LANG>           Force the output language: zh-Hans, zh-Hant, en\n\
@@ -315,6 +321,7 @@ static EN: Text = Text {
     err_unknown_sort_key: "unknown sort key `{key}` (expected one of: {keys})",
     err_unknown_lang: "unknown language `{value}` (expected one of: {langs})",
     err_bad_path: "`{value}` is not an absolute path",
+    err_unknown_type: "unknown type `{value}` (expected one of: {types})",
 
     err_not_ext4: "{device} is not an ext4 filesystem (superblock magic 0x{magic}, expected 0xef53)",
     err_unsupported: "unsupported: {what}",
@@ -375,6 +382,8 @@ static ZH_HANS: Text = Text {
     opt_path: "    -p, --path <路径>    只搜索该绝对路径（目录）之内的条目。\n\
                \x20                        与 --regex 同用时，路径视为正则表达式，\n\
                \x20                        匹配到的目录会被递归搜索",
+    opt_type: "    -t, --type <类型>    只搜索这些类型，逗号分隔：file（f）、directory（d）。\n\
+               \x20                        不指定时搜索所有类型",
     opt_threads: "    -j, --threads <N>    并发读取数（默认 16；扫描受设备延迟限制，而非 CPU）",
     opt_lang: "    --lang <语言>        强制指定输出语言：zh-Hans、zh-Hant、en\n\
                \x20                        （默认从 LC_ALL、LANGUAGE、LC_MESSAGES、LANG 推断）",
@@ -403,6 +412,7 @@ static ZH_HANS: Text = Text {
     err_unknown_sort_key: "未知的排序键 `{key}`（可选：{keys}）",
     err_unknown_lang: "未知的语言 `{value}`（可选：{langs}）",
     err_bad_path: "`{value}` 不是绝对路径",
+    err_unknown_type: "未知的类型 `{value}`（可选：{types}）",
 
     err_not_ext4: "{device} 不是 ext4 文件系统（超级块 magic 为 0x{magic}，应为 0xef53）",
     err_unsupported: "不支持：{what}",
@@ -459,6 +469,8 @@ static ZH_HANT: Text = Text {
     opt_path: "    -p, --path <路徑>    只搜尋該絕對路徑（目錄）之內的項目。\n\
                \x20                        與 --regex 同用時，路徑視為正規表達式，\n\
                \x20                        符合的目錄會被遞迴搜尋",
+    opt_type: "    -t, --type <類型>    只搜尋這些類型，逗號分隔：file（f）、directory（d）。\n\
+               \x20                        不指定時搜尋所有類型",
     opt_threads: "    -j, --threads <N>    並行讀取數（預設 16；掃描受裝置延遲限制，而非 CPU）",
     opt_lang: "    --lang <語言>        強制指定輸出語言：zh-Hans、zh-Hant、en\n\
                \x20                        （預設由 LC_ALL、LANGUAGE、LC_MESSAGES、LANG 推斷）",
@@ -486,6 +498,7 @@ static ZH_HANT: Text = Text {
     err_unknown_sort_key: "未知的排序鍵 `{key}`（可選：{keys}）",
     err_unknown_lang: "未知的語言 `{value}`（可選：{langs}）",
     err_bad_path: "`{value}` 不是絕對路徑",
+    err_unknown_type: "未知的類型 `{value}`（可選：{types}）",
 
     err_not_ext4: "{device} 不是 ext4 檔案系統（超級區塊 magic 為 0x{magic}，應為 0xef53）",
     err_unsupported: "不支援：{what}",
@@ -559,6 +572,7 @@ mod tests {
                 text.opt_sort,
                 text.opt_device,
                 text.opt_path,
+                text.opt_type,
                 text.opt_threads,
                 text.opt_lang,
                 text.opt_clean,
@@ -582,6 +596,7 @@ mod tests {
                 text.err_unknown_sort_key,
                 text.err_unknown_lang,
                 text.err_bad_path,
+                text.err_unknown_type,
                 text.err_not_ext4,
                 text.err_unsupported,
                 text.err_corrupt,
@@ -639,7 +654,7 @@ mod tests {
             found
         }
 
-        let pairs: [(&str, &str, &str); 20] = [
+        let pairs: [(&str, &str, &str); 21] = [
             (EN.summary, ZH_HANS.summary, ZH_HANT.summary),
             (EN.matches_all, ZH_HANS.matches_all, ZH_HANT.matches_all),
             (
@@ -688,6 +703,11 @@ mod tests {
                 ZH_HANT.err_unknown_lang,
             ),
             (EN.err_bad_path, ZH_HANS.err_bad_path, ZH_HANT.err_bad_path),
+            (
+                EN.err_unknown_type,
+                ZH_HANS.err_unknown_type,
+                ZH_HANT.err_unknown_type,
+            ),
             (EN.err_not_ext4, ZH_HANS.err_not_ext4, ZH_HANT.err_not_ext4),
             (
                 EN.err_unsupported,
@@ -739,6 +759,7 @@ mod tests {
                 "--sort",
                 "--device",
                 "--path",
+                "--type",
                 "--threads",
                 "--lang",
                 "--clean",

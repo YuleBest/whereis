@@ -165,12 +165,13 @@ fn extension_range(path: &[u8]) -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ext4::EntryKind;
 
     fn hit(path: &str, size: u64, mtime: u32) -> Hit {
         Hit {
             path: path.as_bytes().to_vec(),
             inode: 1,
-            is_dir: false,
+            kind: EntryKind::File,
             size,
             mtime,
         }

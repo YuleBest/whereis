@@ -52,6 +52,8 @@ const ROOT_INO: u32 = 2;
 
 const S_IFMT: u16 = 0xF000;
 const S_IFDIR: u16 = 0x4000;
+const S_IFREG: u16 = 0x8000;
+const FT_FILE: u8 = 1;
 const FT_DIR: u8 = 2;
 
 /// ext4 nests at most 5 levels of extent index blocks.
@@ -147,15 +149,46 @@ pub struct ScanResult {
 
 /// One matched entry.
 ///
-/// Whether the entry is a directory is always known: directory entries carry
-/// their type. `size` and `mtime` stay zero during the scan, because the walk
-/// only reads *directory* inodes.
+/// The kind is always known: directory entries carry their type. `size` and
+/// `mtime` stay zero during the scan, because the walk only reads *directory*
+/// inodes; they are filled in by [`Scanner::fill_metadata`] on demand.
 pub struct Hit {
     pub path: Vec<u8>,
     pub inode: u32,
-    pub is_dir: bool,
+    pub kind: EntryKind,
     pub size: u64,
     pub mtime: u32,
+}
+
+/// What a directory entry points at, as far as the filters are concerned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryKind {
+    /// A regular file.
+    File,
+    /// A directory.
+    Dir,
+    /// Anything else: symlink, socket, device, FIFO.
+    Other,
+}
+
+/// A `--type` selection. Entries of unselected kinds are dropped while parsing,
+/// so they never take up space as hits.
+#[derive(Debug, Clone, Copy)]
+pub struct TypeFilter {
+    pub files: bool,
+    pub dirs: bool,
+}
+
+impl TypeFilter {
+    pub const NAMES: &'static str = "file, f, directory, d";
+
+    pub fn allows(self, kind: EntryKind) -> bool {
+        match kind {
+            EntryKind::File => self.files,
+            EntryKind::Dir => self.dirs,
+            EntryKind::Other => false,
+        }
+    }
 }
 
 /// A directory in the current batch whose data blocks are being read.
@@ -176,6 +209,7 @@ struct ParseOut<'a> {
     /// Whether this directory's entries are inside the requested subtree.
     in_scope: bool,
     path_filter: Option<&'a PathFilter>,
+    types: Option<&'a TypeFilter>,
 }
 
 // ------------------------------------------------------------------ scanner
@@ -343,7 +377,12 @@ impl Scanner {
 
     /// Walk the tree from the root directory, calling `matches` on every file
     /// name and collecting the full paths of the ones it accepts.
-    pub fn scan<F>(&self, matches: F, path_filter: Option<&PathFilter>) -> Result<ScanResult>
+    pub fn scan<F>(
+        &self,
+        matches: F,
+        path_filter: Option<&PathFilter>,
+        types: Option<&TypeFilter>,
+    ) -> Result<ScanResult>
     where
         F: Fn(&[u8]) -> bool,
     {
@@ -458,6 +497,7 @@ impl Scanner {
                         child_inode: &mut child_inode,
                         in_scope: batch[w.batch_index].2,
                         path_filter,
+                        types,
                     };
                     self.parse_directory(
                         &batch[w.batch_index].1,
@@ -494,6 +534,7 @@ impl Scanner {
         let block_size = self.geo.block_size as usize;
         let in_scope = out.in_scope;
         let path_filter = out.path_filter;
+        let types = out.types;
         let mut remaining = size;
 
         for block in data.chunks_exact(block_size) {
@@ -522,22 +563,29 @@ impl Scanner {
                     if !is_dot(name) {
                         out.stats.entries += 1;
 
-                        let is_dir = match file_type {
-                            FT_DIR => true,
+                        let kind = match file_type {
+                            FT_DIR => EntryKind::Dir,
+                            FT_FILE => EntryKind::File,
                             0 => {
                                 // The type field is missing; the only way to know
                                 // is to look at the inode itself.
                                 self.read_inode_serial(child, out.child_inode)?;
-                                le16(out.child_inode, INO_MODE) & S_IFMT == S_IFDIR
+                                match le16(out.child_inode, INO_MODE) & S_IFMT {
+                                    S_IFDIR => EntryKind::Dir,
+                                    S_IFREG => EntryKind::File,
+                                    _ => EntryKind::Other,
+                                }
                             }
-                            _ => false,
+                            _ => EntryKind::Other,
                         };
+                        let is_dir = kind == EntryKind::Dir;
+                        let wanted = types.map_or(true, |types| types.allows(kind));
 
-                        if in_scope && matches(name) {
+                        if in_scope && wanted && matches(name) {
                             out.hits.push(Hit {
                                 path: join_path(dir_path, name),
                                 inode: child,
-                                is_dir,
+                                kind,
                                 size: 0,
                                 mtime: 0,
                             });
@@ -822,6 +870,24 @@ mod tests {
     fn join_below_root_does_not_double_the_slash() {
         assert_eq!(join_path(b"/", b"etc"), b"/etc");
         assert_eq!(join_path(b"/etc", b"passwd"), b"/etc/passwd");
+    }
+
+    #[test]
+    fn type_filter_selects_the_asked_for_kinds() {
+        let dirs = TypeFilter {
+            files: false,
+            dirs: true,
+        };
+        assert!(dirs.allows(EntryKind::Dir));
+        assert!(!dirs.allows(EntryKind::File));
+        assert!(!dirs.allows(EntryKind::Other));
+
+        let files = TypeFilter {
+            files: true,
+            dirs: false,
+        };
+        assert!(files.allows(EntryKind::File));
+        assert!(!files.allows(EntryKind::Dir));
     }
 
     #[test]
