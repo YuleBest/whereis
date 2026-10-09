@@ -22,7 +22,7 @@ use format::Format;
 use i18n::Lang;
 use listing::{LineSpec, Names};
 use logical::Query;
-use matcher::{Matcher, PathFilter};
+use matcher::PathFilter;
 use sort::{SortDir, SortKey};
 
 /// The scan is bound by device latency rather than by CPU, so this sits well
@@ -134,7 +134,6 @@ fn run(argv: &[String]) -> Result<()> {
     } else {
         Query::simple(&args.names, args.regex)?
     };
-    let terms = query.positive_terms();
     let path_filter = match &args.path {
         Some(value) if args.regex => Some(PathFilter::regex(value)?),
         Some(value) => Some(PathFilter::literal(value)?),
@@ -177,7 +176,7 @@ fn run(argv: &[String]) -> Result<()> {
     let widths = if format == Format::Text {
         line_spec
             .as_ref()
-            .map(|spec| listing::measure(spec, &hits, &mut names))
+            .map(|spec| listing::measure(spec, &hits, &mut names, &query))
     } else {
         None
     };
@@ -210,23 +209,36 @@ fn run(argv: &[String]) -> Result<()> {
             match format {
                 Format::Text => {
                     if let (Some(spec), Some(widths)) = (&line_spec, &widths) {
-                        listing::write_row(&mut out, spec, widths, hit, &mut names)?;
+                        listing::write_row(&mut out, spec, widths, hit, &mut names, &query)?;
                     }
-                    write_path(&mut out, hit, color, &terms)
+                    write_path(&mut out, hit, color, &query)
                 }
                 Format::Json => {
                     if printed > 0 {
                         out.write_all(b",\n")?;
                     }
                     out.write_all(b"  ")?;
-                    format::write_json_object(&mut out, line_spec.as_ref(), hit, &mut names)
+                    format::write_json_object(&mut out, line_spec.as_ref(), hit, &mut names, &query)
                 }
                 Format::Jsonl => {
-                    format::write_json_object(&mut out, line_spec.as_ref(), hit, &mut names)?;
+                    format::write_json_object(
+                        &mut out,
+                        line_spec.as_ref(),
+                        hit,
+                        &mut names,
+                        &query,
+                    )?;
                     out.write_all(b"\n")
                 }
                 Format::Tsv | Format::Csv => {
-                    format::write_delimited(&mut out, format, line_spec.as_ref(), hit, &mut names)?;
+                    format::write_delimited(
+                        &mut out,
+                        format,
+                        line_spec.as_ref(),
+                        hit,
+                        &mut names,
+                        &query,
+                    )?;
                     out.write_all(b"\n")
                 }
             }
@@ -425,14 +437,14 @@ fn parse_args(argv: &[String]) -> Result<Args> {
 /// Write one result line, colouring directories and the parts of the name that
 /// matched. The path bytes themselves are never altered: no trailing slash, and
 /// no escape sequences at all on a pipe.
-fn write_path(out: &mut impl Write, hit: &Hit, color: bool, terms: &[&Matcher]) -> io::Result<()> {
+fn write_path(out: &mut impl Write, hit: &Hit, color: bool, query: &Query) -> io::Result<()> {
     if !color {
         out.write_all(&hit.path)?;
         out.write_all(b"\n")?;
         return Ok(());
     }
 
-    let ranges = highlight_ranges(&hit.path, terms);
+    let ranges = highlight_ranges(&hit.path, query);
     if ranges.is_empty() {
         if hit.kind == EntryKind::Dir {
             out.write_all(COLOR_DIR)?;
@@ -494,35 +506,16 @@ fn write_styled(
     out.write_all(bytes)
 }
 
-/// The ranges of the file name that matched a positive term, merged and shifted
-/// into the full path.
-fn highlight_ranges(path: &[u8], terms: &[&Matcher]) -> Vec<Range<usize>> {
-    if terms.is_empty() {
-        return Vec::new();
-    }
-    let start = path
-        .iter()
-        .rposition(|&byte| byte == b'/')
-        .map_or(0, |slash| slash + 1);
-    let name = &path[start..];
-    let mut found = Vec::new();
-    for term in terms {
-        term.find_ranges(name, &mut found);
-    }
-    found.sort_by_key(|range| (range.start, range.end));
-
-    let mut merged: Vec<Range<usize>> = Vec::new();
-    for range in found {
-        match merged.last_mut() {
-            Some(last) if range.start <= last.end => last.end = last.end.max(range.end),
-            _ => merged.push(range),
-        }
-    }
-    for range in &mut merged {
-        range.start += start;
-        range.end += start;
-    }
-    merged
+/// The ranges of the file name that matched a positive term, shifted into the
+/// full path.
+fn highlight_ranges(path: &[u8], query: &Query) -> Vec<Range<usize>> {
+    let range = listing::name_range(path);
+    let start = range.start;
+    query
+        .spans(&path[range])
+        .into_iter()
+        .map(|span| start + span.start..start + span.end)
+        .collect()
 }
 
 /// Once [`PROMPT_AFTER`] lines are on screen, ask whether to keep going. Only a
@@ -607,6 +600,11 @@ mod tests {
         }
     }
 
+    fn query(patterns: &[&str]) -> Query {
+        let patterns: Vec<String> = patterns.iter().map(|p| (*p).to_owned()).collect();
+        Query::simple(&patterns, false).unwrap()
+    }
+
     #[test]
     fn only_y_continues() {
         for yes in ["y", "Y", "yes", " yes \n"] {
@@ -672,38 +670,38 @@ mod tests {
     fn only_directories_are_coloured() {
         let dir = hit("/etc", EntryKind::Dir);
         let file = hit("/etc/passwd", EntryKind::File);
+        let q = query(&[]);
 
         let mut out = Vec::new();
-        write_path(&mut out, &dir, true, &[]).unwrap();
-        write_path(&mut out, &file, true, &[]).unwrap();
-        write_path(&mut out, &dir, false, &[]).unwrap();
+        write_path(&mut out, &dir, true, &q).unwrap();
+        write_path(&mut out, &file, true, &q).unwrap();
+        write_path(&mut out, &dir, false, &q).unwrap();
         assert_eq!(out, b"\x1b[1;34m/etc\x1b[0m\n/etc/passwd\n/etc\n");
     }
 
     #[test]
     fn matched_terms_are_highlighted_in_the_name() {
-        let term = Matcher::substring("NGINX");
+        let q = query(&["NGINX"]);
         let file = hit("/etc/nginx.conf", EntryKind::File);
         let dir = hit("/etc/nginx", EntryKind::Dir);
 
         let mut out = Vec::new();
-        write_path(&mut out, &file, true, &[&term]).unwrap();
+        write_path(&mut out, &file, true, &q).unwrap();
         assert_eq!(out, b"/etc/\x1b[1;31mnginx\x1b[0m.conf\n");
 
         out.clear();
-        write_path(&mut out, &dir, true, &[&term]).unwrap();
+        write_path(&mut out, &dir, true, &q).unwrap();
         assert_eq!(out, b"\x1b[1;34m/etc/\x1b[1;31mnginx\x1b[0m\n");
 
         // A pipe gets the path untouched.
         out.clear();
-        write_path(&mut out, &file, false, &[&term]).unwrap();
+        write_path(&mut out, &file, false, &q).unwrap();
         assert_eq!(out, b"/etc/nginx.conf\n");
 
         // Overlapping terms merge into one span.
-        let a = Matcher::substring("inx");
-        let b = Matcher::substring("ngi");
+        let both = query(&["inx", "ngi"]);
         out.clear();
-        write_path(&mut out, &file, true, &[&a, &b]).unwrap();
+        write_path(&mut out, &file, true, &both).unwrap();
         assert_eq!(out, b"/etc/\x1b[1;31mnginx\x1b[0m.conf\n");
     }
 

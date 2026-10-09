@@ -8,20 +8,33 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 use std::fmt::Write as _;
 use std::io::{self, Write};
+use std::ops::Range;
 
 use crate::error::{Error, Result};
-use crate::ext4::Hit;
+use crate::ext4::{EntryKind, Hit};
 use crate::i18n;
+use crate::logical::Query;
 
 /// A column that can appear before the path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
+    Type,
     Mode,
-    Mtime,
+    Mtime(MtimeFormat),
     Size(SizeUnit),
+    Spans,
     User,
     Group,
     Nlink,
+}
+
+/// How the mtime column is rendered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MtimeFormat {
+    /// Local time like `ls -l`, the default.
+    Local,
+    /// Seconds since the Unix epoch.
+    Timestamp,
 }
 
 /// How the size column is rendered.
@@ -29,7 +42,10 @@ pub enum Field {
 pub enum SizeUnit {
     /// The largest unit that keeps the number readable, the default.
     Auto,
+    /// Bytes with a trailing `B`.
     Bytes,
+    /// Raw bytes, no unit at all.
+    Raw,
     K,
     M,
     G,
@@ -39,13 +55,24 @@ pub enum SizeUnit {
 /// The name of a column, used as the key of structured output.
 pub fn field_name(field: &Field) -> &'static str {
     match field {
+        Field::Type => "type",
         Field::Mode => "mode",
-        Field::Mtime => "mtime",
+        Field::Mtime(_) => "mtime",
         Field::Size(_) => "size",
+        Field::Spans => "spans",
         Field::User => "user",
         Field::Group => "group",
         Field::Nlink => "nlink",
     }
+}
+
+/// The byte range of the file name inside a path.
+pub fn name_range(path: &[u8]) -> Range<usize> {
+    let start = path
+        .iter()
+        .rposition(|&byte| byte == b'/')
+        .map_or(0, |slash| slash + 1);
+    start..path.len()
 }
 
 /// The parsed `--line` value.
@@ -57,14 +84,18 @@ pub struct LineSpec {
 impl Default for LineSpec {
     fn default() -> Self {
         LineSpec {
-            fields: vec![Field::Mode, Field::Mtime, Field::Size(SizeUnit::Auto)],
+            fields: vec![
+                Field::Mode,
+                Field::Mtime(MtimeFormat::Local),
+                Field::Size(SizeUnit::Auto),
+            ],
         }
     }
 }
 
 impl LineSpec {
-    pub const FIELD_NAMES: &'static str = "mode, mtime, size, user, group, nlink";
-    pub const UNIT_NAMES: &'static str = "auto, b, k, m, g, t";
+    pub const FIELD_NAMES: &'static str = "type, mode, mtime, size, spans, user, group, nlink";
+    pub const UNIT_NAMES: &'static str = "auto, raw, b, k, m, g, t";
 
     pub fn parse(value: &str) -> Result<Self> {
         let mut fields = Vec::new();
@@ -74,11 +105,16 @@ impl LineSpec {
                 Some((name, unit)) => (name.trim(), Some(unit.trim())),
                 None => (token, None),
             };
-            fields.push(match (name, unit) {
+            let field = match (name, unit) {
+                ("type", None) => Field::Type,
                 ("mode", None) => Field::Mode,
-                ("mtime", None) => Field::Mtime,
+                ("mtime", None) => Field::Mtime(MtimeFormat::Local),
+                ("mtime", Some(unit)) if unit.eq_ignore_ascii_case("timestamp") => {
+                    Field::Mtime(MtimeFormat::Timestamp)
+                }
                 ("size", None) => Field::Size(SizeUnit::Auto),
                 ("size", Some(unit)) => Field::Size(SizeUnit::parse(unit)?),
+                ("spans", None) => Field::Spans,
                 ("user", None) => Field::User,
                 ("group", None) => Field::Group,
                 ("nlink", None) => Field::Nlink,
@@ -89,7 +125,8 @@ impl LineSpec {
                         fields = Self::FIELD_NAMES
                     )))
                 }
-            });
+            };
+            fields.push(field);
         }
         Ok(LineSpec { fields })
     }
@@ -104,6 +141,7 @@ impl SizeUnit {
         match value.to_ascii_lowercase().as_str() {
             "auto" => Ok(SizeUnit::Auto),
             "b" => Ok(SizeUnit::Bytes),
+            "raw" => Ok(SizeUnit::Raw),
             "k" => Ok(SizeUnit::K),
             "m" => Ok(SizeUnit::M),
             "g" => Ok(SizeUnit::G),
@@ -194,17 +232,17 @@ pub struct Widths {
 }
 
 /// Measure every requested column over the result set.
-pub fn measure(spec: &LineSpec, hits: &[Hit], names: &mut Names) -> Widths {
+pub fn measure(spec: &LineSpec, hits: &[Hit], names: &mut Names, query: &Query) -> Widths {
     let mut widths = vec![0; spec.fields.len()];
     let mut cell = String::new();
     for hit in hits {
         for (i, field) in spec.fields().iter().enumerate() {
-            // The timestamp format is fixed width, so measuring it would only
+            // The local-time format is fixed width, so measuring it would only
             // cost a localtime_r call per hit before anything is printed.
-            let width = if *field == Field::Mtime {
+            let width = if *field == Field::Mtime(MtimeFormat::Local) {
                 19
             } else {
-                render(field, hit, names, &mut cell);
+                render(field, hit, names, query, &mut cell);
                 cell.chars().count()
             };
             widths[i] = widths[i].max(width);
@@ -221,10 +259,11 @@ pub fn write_row(
     widths: &Widths,
     hit: &Hit,
     names: &mut Names,
+    query: &Query,
 ) -> io::Result<()> {
     let mut cell = String::new();
     for (i, field) in spec.fields().iter().enumerate() {
-        render(field, hit, names, &mut cell);
+        render(field, hit, names, query, &mut cell);
         let pad = widths.widths[i].saturating_sub(cell.chars().count());
         if right_aligned(field) {
             write_spaces(out, pad)?;
@@ -241,7 +280,7 @@ pub fn write_row(
 fn right_aligned(field: &Field) -> bool {
     matches!(
         field,
-        Field::Mode | Field::Mtime | Field::Size(_) | Field::Nlink
+        Field::Mode | Field::Mtime(_) | Field::Size(_) | Field::Nlink
     )
 }
 
@@ -256,14 +295,27 @@ fn write_spaces(out: &mut impl Write, mut count: usize) -> io::Result<()> {
 }
 
 /// Render one column into `out`, without padding or colours.
-pub fn render(field: &Field, hit: &Hit, names: &mut Names, out: &mut String) {
+pub fn render(field: &Field, hit: &Hit, names: &mut Names, query: &Query, out: &mut String) {
     out.clear();
     match field {
+        Field::Type => out.push_str(kind_name(hit.kind)),
         Field::Mode => {
             let _ = write!(out, "{:04o}", hit.mode & 0o7777);
         }
-        Field::Mtime => out.push_str(&format_mtime(hit.mtime)),
+        Field::Mtime(MtimeFormat::Local) => out.push_str(&format_mtime(hit.mtime)),
+        Field::Mtime(MtimeFormat::Timestamp) => {
+            let _ = write!(out, "{}", hit.mtime);
+        }
         Field::Size(unit) => out.push_str(&format_size(hit.size, *unit)),
+        Field::Spans => {
+            let name = &hit.path[name_range(&hit.path)];
+            for (i, span) in query.spans(name).iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                let _ = write!(out, "{}-{}", span.start, span.end);
+            }
+        }
         Field::User => out.push_str(names.user(hit.uid)),
         Field::Group => out.push_str(names.group(hit.gid)),
         Field::Nlink => {
@@ -272,10 +324,19 @@ pub fn render(field: &Field, hit: &Hit, names: &mut Names, out: &mut String) {
     }
 }
 
+fn kind_name(kind: EntryKind) -> &'static str {
+    match kind {
+        EntryKind::File => "file",
+        EntryKind::Dir => "directory",
+        EntryKind::Other => "other",
+    }
+}
+
 fn format_size(bytes: u64, unit: SizeUnit) -> String {
     match unit {
         SizeUnit::Auto => human_size(bytes),
         SizeUnit::Bytes => format!("{bytes}B"),
+        SizeUnit::Raw => bytes.to_string(),
         SizeUnit::K => scaled_size(bytes, 1 << 10, "K"),
         SizeUnit::M => scaled_size(bytes, 1 << 20, "M"),
         SizeUnit::G => scaled_size(bytes, 1 << 30, "G"),
@@ -326,13 +387,14 @@ mod tests {
 
     #[test]
     fn line_spec_parses_fields_in_order() {
-        let spec = LineSpec::parse("mtime,size=k,user,nlink").unwrap();
+        let spec = LineSpec::parse("type,mtime=timestamp,size=raw,spans,nlink").unwrap();
         assert_eq!(
             spec.fields(),
             &[
-                Field::Mtime,
-                Field::Size(SizeUnit::K),
-                Field::User,
+                Field::Type,
+                Field::Mtime(MtimeFormat::Timestamp),
+                Field::Size(SizeUnit::Raw),
+                Field::Spans,
                 Field::Nlink
             ]
         );
@@ -343,6 +405,10 @@ mod tests {
         assert_eq!(
             LineSpec::parse("size=K").unwrap().fields(),
             &[Field::Size(SizeUnit::K)]
+        );
+        assert_eq!(
+            LineSpec::parse("mtime").unwrap().fields(),
+            &[Field::Mtime(MtimeFormat::Local)]
         );
     }
 
@@ -357,6 +423,7 @@ mod tests {
     #[test]
     fn sizes_use_the_requested_unit() {
         assert_eq!(format_size(0, SizeUnit::Bytes), "0B");
+        assert_eq!(format_size(1536, SizeUnit::Raw), "1536");
         assert_eq!(format_size(4096, SizeUnit::K), "4.0K");
         assert_eq!(format_size(1536, SizeUnit::Auto), "1.5K");
         assert_eq!(format_size(1 << 20, SizeUnit::Auto), "1.0M");

@@ -368,12 +368,14 @@ static EN: Text = Text {
         (
             "--line <FIELDS>",
             "Custom output columns. List the fields in the order they should\n\
-             appear before the path: mode, mtime, size, user, group, nlink\n\
-             (default mode,mtime,size).\n\
+             appear before the path: type, mode, mtime, size, spans, user,\n\
+             group, nlink (default mode,mtime,size).\n\
              \n\
-             size uses adaptive 1024-based units, or size=auto|b|k|m|g|t to\n\
-             pin one. mtime is local time; user and group names come from the\n\
-             system NSS and fall back to numbers.",
+             type is file, directory or other; spans lists the matched ranges\n\
+             of the name as start-end. size accepts auto|raw|b|k|m|g|t, and\n\
+             mtime accepts timestamp for Unix seconds. mtime is local time by\n\
+             default; user and group names come from the system NSS and fall\n\
+             back to numbers.",
         ),
         (
             "--format <FORMAT>",
@@ -558,10 +560,11 @@ static ZH_HANS: Text = Text {
             "--line <字段>",
             "自定义输出列。\n\
              \n\
-             列按给定顺序排在路径之前：mode、mtime、size、user、group、nlink，\n\
+             列按给定顺序排在路径之前：type、mode、mtime、size、spans、user、group、nlink，\n\
              默认 mode,mtime,size。\n\
-             size 默认自适应单位，也可用 size=auto|b|k|m|g|t 固定；mtime 为本地时间；\n\
-             user、group 通过系统 NSS 解析，查不到时显示数字。",
+             type 为 file、directory 或 other；spans 是文件名内的匹配区间，格式 起始-结束。\n\
+             size 可用 auto、raw、b、k、m、g、t；mtime=timestamp 输出 Unix 秒；\n\
+             默认 mtime 为本地时间；user、group 通过系统 NSS 解析，查不到时显示数字。",
         ),
         (
             "--format <格式>",
@@ -736,10 +739,11 @@ static ZH_HANT: Text = Text {
             "--line <欄位>",
             "自訂輸出欄位。\n\
              \n\
-             欄位依給定順序排在路徑之前：mode、mtime、size、user、group、nlink，\n\
+             欄位依給定順序排在路徑之前：type、mode、mtime、size、spans、user、group、nlink，\n\
              預設 mode,mtime,size。\n\
-             size 預設自適應單位，也可用 size=auto|b|k|m|g|t 固定；mtime 為本地時間；\n\
-             user、group 透過系統 NSS 解析，查不到時顯示數字。",
+             type 為 file、directory 或 other；spans 是檔案名稱內的匹配區間，格式 起始-結束。\n\
+             size 可用 auto、raw、b、k、m、g、t；mtime=timestamp 輸出 Unix 秒；\n\
+             預設 mtime 為本地時間；user、group 透過系統 NSS 解析，查不到時顯示數字。",
         ),
         (
             "--format <格式>",

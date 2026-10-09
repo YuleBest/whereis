@@ -42,7 +42,7 @@ wis [选项] <名称>...
 | `-p`, `--path <路径>` | 只搜索该绝对路径（目录）之内的条目；与 `-r` 同用时路径视为正则表达式，匹配到的目录会被递归搜索 |
 | `-t`, `--type <类型>[,类型2]...` | 只搜索指定类型，逗号分隔或重复给出；`file`/`f` 指普通文件，`directory`/`d` 指目录；不指定则不过滤 |
 | `-b`, `--base <序号>` | 只在该历史记录的结果集里搜索；序号从最近一条往前走，`1` 是最近一次，最多 `10` |
-| `--line <字段>[,字段2]...` | 自定义路径前的列及其顺序，逗号分隔：`mode`、`mtime`、`size[=auto\|b\|k\|m\|g\|t]`、`user`、`group`、`nlink`（默认 `mode,mtime,size`） |
+| `--line <字段>[,字段2]...` | 自定义路径前的列及其顺序，逗号分隔：`type`、`mode`、`mtime[=timestamp]`、`size[=auto\|raw\|b\|k\|m\|g\|t]`、`spans`、`user`、`group`、`nlink`（默认 `mode,mtime,size`） |
 | `--format <格式>` | 输出格式：`text`（默认）、`json`、`jsonl`、`tsv`、`csv`；结构化格式的字段跟随 `--line` |
 | `-j`, `--threads <N>` | 并发读取数，默认 16 |
 | `--lang <语言>` | 强制输出语言：`zh-Hans`、`zh-Hant`、`en` |
@@ -80,8 +80,11 @@ $ sudo wis sshd_config
 ```
 
 `-c` 只输出纯路径。`--line` 可以自定义列及其顺序，例如
-`--line user,group,nlink,size=k,mtime`；列顺序即显示顺序，结果排序仍由 `-s` 控制。
-用户名和组名通过系统 NSS 解析，查不到时显示数字。统计信息只走 stderr，stdout 不混杂状态输出。
+`--line type,user,group,nlink,size=raw,mtime=timestamp`；列顺序即显示顺序，结果排序仍由
+`-s` 控制。`type` 是 `file`、`directory` 或 `other`；`spans` 输出文件名内的匹配区间
+（`起始-结束`，结束不含，多个用逗号分隔）；`size=raw` 是不带单位的字节数；
+`mtime=timestamp` 是 Unix 秒。用户名和组名通过系统 NSS 解析，查不到时显示数字。
+统计信息只走 stderr，stdout 不混杂状态输出。
 
 ### 输出格式
 

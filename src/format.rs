@@ -11,6 +11,7 @@ use crate::error::{Error, Result};
 use crate::ext4::Hit;
 use crate::i18n;
 use crate::listing::{self, LineSpec, Names};
+use crate::logical::Query;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Format {
@@ -48,6 +49,7 @@ pub fn write_json_object(
     spec: Option<&LineSpec>,
     hit: &Hit,
     names: &mut Names,
+    query: &Query,
 ) -> io::Result<()> {
     out.write_all(b"{")?;
     let mut first = true;
@@ -59,7 +61,7 @@ pub fn write_json_object(
             }
             first = false;
             write_json_key(out, listing::field_name(field))?;
-            listing::render(field, hit, names, &mut value);
+            listing::render(field, hit, names, query, &mut value);
             write_json_string(out, value.as_bytes())?;
         }
     }
@@ -78,6 +80,7 @@ pub fn write_delimited(
     spec: Option<&LineSpec>,
     hit: &Hit,
     names: &mut Names,
+    query: &Query,
 ) -> io::Result<()> {
     let csv = match format {
         Format::Csv => true,
@@ -93,7 +96,7 @@ pub fn write_delimited(
                 out.write_all(separator)?;
             }
             first = false;
-            listing::render(field, hit, names, &mut value);
+            listing::render(field, hit, names, query, &mut value);
             write_delimited_field(out, value.as_bytes(), csv)?;
         }
     }
@@ -200,15 +203,20 @@ mod tests {
         LineSpec::parse(value).unwrap()
     }
 
-    fn record(format: Format, spec: &LineSpec, hit: &Hit) -> String {
+    fn query(patterns: &[&str]) -> Query {
+        let patterns: Vec<String> = patterns.iter().map(|p| (*p).to_owned()).collect();
+        Query::simple(&patterns, false).unwrap()
+    }
+
+    fn record(format: Format, spec: &LineSpec, hit: &Hit, query: &Query) -> String {
         let mut out = Vec::new();
         let mut names = Names::default();
         match format {
             Format::Json | Format::Jsonl => {
-                write_json_object(&mut out, Some(spec), hit, &mut names).unwrap()
+                write_json_object(&mut out, Some(spec), hit, &mut names, query).unwrap()
             }
             Format::Csv | Format::Tsv => {
-                write_delimited(&mut out, format, Some(spec), hit, &mut names).unwrap()
+                write_delimited(&mut out, format, Some(spec), hit, &mut names, query).unwrap()
             }
             Format::Text => unreachable!(),
         }
@@ -221,6 +229,7 @@ mod tests {
             Format::Json,
             &spec("mode,size=b,nlink"),
             &hit(b"/a b,baz\"q\""),
+            &query(&["x"]),
         );
         assert_eq!(
             text,
@@ -230,27 +239,56 @@ mod tests {
 
     #[test]
     fn csv_quotes_separators_and_quotes() {
-        let text = record(Format::Csv, &spec("mode,size=b"), &hit(b"/a,b\"c"));
+        let text = record(
+            Format::Csv,
+            &spec("mode,size=b"),
+            &hit(b"/a,b\"c"),
+            &query(&["x"]),
+        );
         assert_eq!(text, "0644,1536B,\"/a,b\"\"c\"");
     }
 
     #[test]
     fn tsv_escapes_control_characters() {
-        let text = record(Format::Tsv, &spec("nlink"), &hit(b"/a\tb\nc\\d"));
+        let text = record(
+            Format::Tsv,
+            &spec("nlink"),
+            &hit(b"/a\tb\nc\\d"),
+            &query(&["x"]),
+        );
         assert_eq!(text, "2\t/a\\tb\\nc\\\\d");
     }
 
     #[test]
     fn json_replaces_non_utf8_bytes() {
-        let text = record(Format::Json, &spec("mode"), &hit(b"/bad\xff"));
+        let text = record(
+            Format::Json,
+            &spec("mode"),
+            &hit(b"/bad\xff"),
+            &query(&["x"]),
+        );
         assert!(text.contains("path\":\"/bad\u{fffd}\""), "{text}");
+    }
+
+    #[test]
+    fn type_spans_and_raw_size_follow_line() {
+        let text = record(
+            Format::Json,
+            &spec("type,spans,size=raw"),
+            &hit(b"/dir/bar.txt"),
+            &query(&["bar", "txt"]),
+        );
+        assert_eq!(
+            text,
+            r#"{"type":"file","spans":"0-3,4-7","size":"1536","path":"/dir/bar.txt"}"#
+        );
     }
 
     #[test]
     fn a_clean_record_only_carries_the_path() {
         let mut out = Vec::new();
         let mut names = Names::default();
-        write_json_object(&mut out, None, &hit(b"/plain"), &mut names).unwrap();
+        write_json_object(&mut out, None, &hit(b"/plain"), &mut names, &query(&["x"])).unwrap();
         assert_eq!(String::from_utf8(out).unwrap(), r#"{"path":"/plain"}"#);
     }
 }

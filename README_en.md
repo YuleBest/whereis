@@ -47,7 +47,7 @@ name is parsed as a logical expression.
 | `-p`, `--path <PATH>` | Only search inside this absolute directory; with `-r`, PATH is a regular expression and every matching directory is searched recursively |
 | `-t`, `--type <TYPE>[,TYPE2]...` | Search only the given types, comma-separated or repeated: `file`/`f` and `directory`/`d`; no filtering when omitted |
 | `-b`, `--base <NUM>` | Search only inside an earlier result set; NUM counts back from the most recent record, `1` being the last search, up to `10` |
-| `--line <FIELDS>` | Columns before the path and their order, comma-separated: `mode`, `mtime`, `size[=auto\|b\|k\|m\|g\|t]`, `user`, `group`, `nlink` (default `mode,mtime,size`) |
+| `--line <FIELDS>` | Columns before the path and their order, comma-separated: `type`, `mode`, `mtime[=timestamp]`, `size[=auto\|raw\|b\|k\|m\|g\|t]`, `spans`, `user`, `group`, `nlink` (default `mode,mtime,size`) |
 | `--format <FORMAT>` | Output format: `text` (default), `json`, `jsonl`, `tsv` or `csv`; structured formats carry the `--line` fields |
 | `-j`, `--threads <N>` | Concurrent metadata reads to keep in flight (default 16) |
 | `--lang <LANG>` | Force the output language: `zh-Hans`, `zh-Hant`, `en` |
@@ -88,8 +88,11 @@ $ sudo wis sshd_config
 ```
 
 `-c` prints bare paths. `--line` customises the columns and their order, for
-example `--line user,group,nlink,size=k,mtime`; column order is display order and
-result sorting is still `-s`. User and group names are resolved through the
+example `--line type,user,group,nlink,size=raw,mtime=timestamp`; column order is
+display order and result sorting is still `-s`. `type` is `file`, `directory` or
+`other`; `spans` lists the matched ranges of the name (`start-end`, end
+exclusive, comma-separated); `size=raw` is the byte count without a unit, and
+`mtime=timestamp` is Unix seconds. User and group names are resolved through the
 system NSS, falling back to numbers. The summary goes to stderr only, so stdout
 carries nothing but results.
 

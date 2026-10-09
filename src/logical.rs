@@ -9,6 +9,8 @@
 //! `apple AND NOT .txt`. Parentheses nest, and a term can be quoted to keep
 //! spaces, parentheses or quotes out of the parser: `"foo bar"`.
 
+use std::ops::Range;
+
 use crate::error::{Error, Result};
 use crate::i18n;
 use crate::matcher::Matcher;
@@ -48,9 +50,28 @@ impl Query {
         self.alternatives.iter().any(|expr| expr.is_match(name))
     }
 
+    /// The merged ranges a matching name matched, relative to the name. Used by
+    /// the `spans` column and by terminal highlighting.
+    pub fn spans(&self, name: &[u8]) -> Vec<Range<usize>> {
+        let mut found = Vec::new();
+        for term in self.positive_terms() {
+            term.find_ranges(name, &mut found);
+        }
+        found.sort_by_key(|range| (range.start, range.end));
+
+        let mut merged: Vec<Range<usize>> = Vec::new();
+        for range in found {
+            match merged.last_mut() {
+                Some(last) if range.start <= last.end => last.end = last.end.max(range.end),
+                _ => merged.push(range),
+            }
+        }
+        merged
+    }
+
     /// The terms that should be highlighted in a matching name: every leaf not
     /// under an odd number of `NOT`s.
-    pub fn positive_terms(&self) -> Vec<&Matcher> {
+    fn positive_terms(&self) -> Vec<&Matcher> {
         let mut terms = Vec::new();
         for expr in &self.alternatives {
             expr.collect_terms(false, &mut terms);
