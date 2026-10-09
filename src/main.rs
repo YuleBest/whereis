@@ -10,6 +10,7 @@ mod sort;
 
 use std::collections::HashSet;
 use std::io::{self, IsTerminal, Write};
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
@@ -19,7 +20,7 @@ use ext4::{EntryKind, Hit, TypeFilter};
 use i18n::Lang;
 use listing::{LineSpec, Names};
 use logical::Query;
-use matcher::PathFilter;
+use matcher::{Matcher, PathFilter};
 use sort::{SortDir, SortKey};
 
 /// The scan is bound by device latency rather than by CPU, so this sits well
@@ -33,9 +34,11 @@ const DEFAULT_THREADS: usize = 16;
 /// scripts always get the full output.
 const PROMPT_AFTER: usize = 1000;
 
-/// GNU ls's default directory colour. It is only ever written when stdout is a
-/// terminal and `NO_COLOR` is unset, so pipes stay byte-clean.
+/// Colours are only ever written when stdout is a terminal and `NO_COLOR` is
+/// unset, so pipes stay byte-clean. Directories are ls-blue, matches are
+/// grep-red.
 const COLOR_DIR: &[u8] = b"\x1b[1;34m";
+const COLOR_HIT: &[u8] = b"\x1b[1;31m";
 const COLOR_RESET: &[u8] = b"\x1b[0m";
 
 struct Args {
@@ -128,6 +131,7 @@ fn run(argv: &[String]) -> Result<()> {
     } else {
         Query::simple(&args.names, args.regex)?
     };
+    let terms = query.positive_terms();
     let path_filter = match &args.path {
         Some(value) if args.regex => Some(PathFilter::regex(value)?),
         Some(value) => Some(PathFilter::literal(value)?),
@@ -194,7 +198,8 @@ fn run(argv: &[String]) -> Result<()> {
             listing::write_row(&mut out, spec, widths, hit, &mut names)
                 .map_err(|e| Error::io(i18n::t!(io_write_stdout), e))?;
         }
-        write_path(&mut out, hit, color).map_err(|e| Error::io(i18n::t!(io_write_stdout), e))?;
+        write_path(&mut out, hit, color, &terms)
+            .map_err(|e| Error::io(i18n::t!(io_write_stdout), e))?;
         printed += 1;
     }
     out.flush()
@@ -374,18 +379,107 @@ fn parse_args(argv: &[String]) -> Result<Args> {
     })
 }
 
-/// Write one result line, colouring directories when the terminal asked for it.
-/// The path bytes themselves are never altered: no trailing slash, and no escape
-/// sequences at all on a pipe.
-fn write_path(out: &mut impl Write, hit: &Hit, color: bool) -> io::Result<()> {
-    if color && hit.kind == EntryKind::Dir {
-        out.write_all(COLOR_DIR)?;
+/// Write one result line, colouring directories and the parts of the name that
+/// matched. The path bytes themselves are never altered: no trailing slash, and
+/// no escape sequences at all on a pipe.
+fn write_path(out: &mut impl Write, hit: &Hit, color: bool, terms: &[&Matcher]) -> io::Result<()> {
+    if !color {
         out.write_all(&hit.path)?;
+        out.write_all(b"\n")?;
+        return Ok(());
+    }
+
+    let ranges = highlight_ranges(&hit.path, terms);
+    if ranges.is_empty() {
+        if hit.kind == EntryKind::Dir {
+            out.write_all(COLOR_DIR)?;
+            out.write_all(&hit.path)?;
+            out.write_all(COLOR_RESET)?;
+        } else {
+            out.write_all(&hit.path)?;
+        }
+        out.write_all(b"\n")?;
+        return Ok(());
+    }
+
+    let dir = hit.kind == EntryKind::Dir;
+    let base = if dir { Style::Dir } else { Style::Plain };
+    let mut current = Style::Plain;
+    let mut pos = 0;
+    for range in ranges {
+        write_styled(out, &hit.path[pos..range.start], base, &mut current)?;
+        write_styled(
+            out,
+            &hit.path[range.start..range.end],
+            Style::Hit,
+            &mut current,
+        )?;
+        pos = range.end;
+    }
+    write_styled(out, &hit.path[pos..], base, &mut current)?;
+    if current != Style::Plain {
         out.write_all(COLOR_RESET)?;
-    } else {
-        out.write_all(&hit.path)?;
     }
     out.write_all(b"\n")
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Style {
+    Plain,
+    Dir,
+    Hit,
+}
+
+fn write_styled(
+    out: &mut impl Write,
+    bytes: &[u8],
+    style: Style,
+    current: &mut Style,
+) -> io::Result<()> {
+    if bytes.is_empty() {
+        return Ok(());
+    }
+    if *current != style {
+        let code = match style {
+            Style::Plain => COLOR_RESET,
+            Style::Dir => COLOR_DIR,
+            Style::Hit => COLOR_HIT,
+        };
+        out.write_all(code)?;
+        *current = style;
+    }
+    out.write_all(bytes)
+}
+
+/// The ranges of the file name that matched a positive term, merged and shifted
+/// into the full path.
+fn highlight_ranges(path: &[u8], terms: &[&Matcher]) -> Vec<Range<usize>> {
+    if terms.is_empty() {
+        return Vec::new();
+    }
+    let start = path
+        .iter()
+        .rposition(|&byte| byte == b'/')
+        .map_or(0, |slash| slash + 1);
+    let name = &path[start..];
+    let mut found = Vec::new();
+    for term in terms {
+        term.find_ranges(name, &mut found);
+    }
+    found.sort_by_key(|range| (range.start, range.end));
+
+    let mut merged: Vec<Range<usize>> = Vec::new();
+    for range in found {
+        match merged.last_mut() {
+            Some(last) if range.start <= last.end => last.end = last.end.max(range.end),
+            _ => merged.push(range),
+        }
+    }
+    for range in &mut merged {
+        range.start += start;
+        range.end += start;
+    }
+    merged
 }
 
 /// Once [`PROMPT_AFTER`] lines are on screen, ask whether to keep going. Only a
@@ -456,6 +550,20 @@ fn resolve_root_device() -> Result<PathBuf> {
 mod tests {
     use super::*;
 
+    fn hit(path: &str, kind: EntryKind) -> Hit {
+        Hit {
+            path: path.as_bytes().to_vec(),
+            inode: 1,
+            kind,
+            mode: 0o644,
+            nlink: 1,
+            uid: 0,
+            gid: 0,
+            size: 0,
+            mtime: 0,
+        }
+    }
+
     #[test]
     fn only_y_continues() {
         for yes in ["y", "Y", "yes", " yes \n"] {
@@ -511,34 +619,41 @@ mod tests {
 
     #[test]
     fn only_directories_are_coloured() {
-        let dir = Hit {
-            path: b"/etc".to_vec(),
-            inode: 1,
-            kind: EntryKind::Dir,
-            mode: 0o755,
-            nlink: 2,
-            uid: 0,
-            gid: 0,
-            size: 0,
-            mtime: 0,
-        };
-        let file = Hit {
-            path: b"/etc/passwd".to_vec(),
-            inode: 2,
-            kind: EntryKind::File,
-            mode: 0o644,
-            nlink: 1,
-            uid: 0,
-            gid: 0,
-            size: 0,
-            mtime: 0,
-        };
+        let dir = hit("/etc", EntryKind::Dir);
+        let file = hit("/etc/passwd", EntryKind::File);
 
         let mut out = Vec::new();
-        write_path(&mut out, &dir, true).unwrap();
-        write_path(&mut out, &file, true).unwrap();
-        write_path(&mut out, &dir, false).unwrap();
+        write_path(&mut out, &dir, true, &[]).unwrap();
+        write_path(&mut out, &file, true, &[]).unwrap();
+        write_path(&mut out, &dir, false, &[]).unwrap();
         assert_eq!(out, b"\x1b[1;34m/etc\x1b[0m\n/etc/passwd\n/etc\n");
+    }
+
+    #[test]
+    fn matched_terms_are_highlighted_in_the_name() {
+        let term = Matcher::substring("NGINX");
+        let file = hit("/etc/nginx.conf", EntryKind::File);
+        let dir = hit("/etc/nginx", EntryKind::Dir);
+
+        let mut out = Vec::new();
+        write_path(&mut out, &file, true, &[&term]).unwrap();
+        assert_eq!(out, b"/etc/\x1b[1;31mnginx\x1b[0m.conf\n");
+
+        out.clear();
+        write_path(&mut out, &dir, true, &[&term]).unwrap();
+        assert_eq!(out, b"\x1b[1;34m/etc/\x1b[1;31mnginx\x1b[0m\n");
+
+        // A pipe gets the path untouched.
+        out.clear();
+        write_path(&mut out, &file, false, &[&term]).unwrap();
+        assert_eq!(out, b"/etc/nginx.conf\n");
+
+        // Overlapping terms merge into one span.
+        let a = Matcher::substring("inx");
+        let b = Matcher::substring("ngi");
+        out.clear();
+        write_path(&mut out, &file, true, &[&a, &b]).unwrap();
+        assert_eq!(out, b"/etc/\x1b[1;31mnginx\x1b[0m.conf\n");
     }
 
     #[test]

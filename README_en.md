@@ -92,9 +92,9 @@ result sorting is still `-s`. User and group names are resolved through the
 system NSS, falling back to numbers. The summary goes to stderr only, so stdout
 carries nothing but results.
 
-Directories are shown in blue on a terminal; pipes, redirects, `NO_COLOR` and
-`TERM=dumb` get no colour. The path itself is never altered or given a trailing
-slash.
+Directories are blue on a terminal and the parts of the name that matched the
+query are highlighted in red; pipes, redirects, `NO_COLOR` and `TERM=dumb` get no
+colour. The path itself is never altered or given a trailing slash.
 `file` means a regular file; symlinks, devices, FIFOs and sockets appear only
 without `-t`.
 

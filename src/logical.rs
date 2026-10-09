@@ -47,6 +47,16 @@ impl Query {
     pub fn is_match(&self, name: &[u8]) -> bool {
         self.alternatives.iter().any(|expr| expr.is_match(name))
     }
+
+    /// The terms that should be highlighted in a matching name: every leaf not
+    /// under an odd number of `NOT`s.
+    pub fn positive_terms(&self) -> Vec<&Matcher> {
+        let mut terms = Vec::new();
+        for expr in &self.alternatives {
+            expr.collect_terms(false, &mut terms);
+        }
+        terms
+    }
 }
 
 fn term(text: &str, regex: bool) -> Result<Matcher> {
@@ -64,6 +74,21 @@ impl Expr {
             Expr::Not(inner) => !inner.is_match(name),
             Expr::And(left, right) => left.is_match(name) && right.is_match(name),
             Expr::Or(left, right) => left.is_match(name) || right.is_match(name),
+        }
+    }
+
+    fn collect_terms<'a>(&'a self, negated: bool, out: &mut Vec<&'a Matcher>) {
+        match self {
+            Expr::Term(matcher) => {
+                if !negated {
+                    out.push(matcher);
+                }
+            }
+            Expr::Not(inner) => inner.collect_terms(!negated, out),
+            Expr::And(left, right) | Expr::Or(left, right) => {
+                left.collect_terms(negated, out);
+                right.collect_terms(negated, out);
+            }
         }
     }
 }
@@ -336,5 +361,14 @@ mod tests {
             let expressions = vec![bad.to_owned()];
             assert!(Query::logical(&expressions, false).is_err(), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn only_positive_terms_are_highlighted() {
+        let query = logical(&["apple NOT .txt", "NOT NOT banana"]);
+        let terms = query.positive_terms();
+        assert!(terms.iter().any(|term| term.is_match(b"apple")));
+        assert!(terms.iter().any(|term| term.is_match(b"banana")));
+        assert!(!terms.iter().any(|term| term.is_match(b".txt")));
     }
 }

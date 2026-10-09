@@ -3,6 +3,8 @@
 //! Matching is always against the file *name*, never the full path, and always
 //! on raw bytes, since ext4 does not require names to be UTF-8.
 
+use std::ops::Range;
+
 use regex::bytes::{Regex, RegexBuilder};
 
 use crate::error::{Error, Result};
@@ -35,6 +37,21 @@ impl Matcher {
         match self {
             Matcher::Substring(needle) => contains_ignore_ascii_case(name, needle),
             Matcher::Regex(re) => re.is_match(name),
+        }
+    }
+
+    /// Append the ranges of every non-overlapping match in `name`, for
+    /// highlighting. Zero-width matches are ignored: there is nothing to show.
+    pub fn find_ranges(&self, name: &[u8], out: &mut Vec<Range<usize>>) {
+        match self {
+            Matcher::Substring(needle) => substring_ranges(name, needle, out),
+            Matcher::Regex(re) => {
+                for found in re.find_iter(name) {
+                    if found.start() < found.end() {
+                        out.push(found.start()..found.end());
+                    }
+                }
+            }
         }
     }
 }
@@ -110,12 +127,30 @@ fn contains_ignore_ascii_case(haystack: &[u8], needle: &[u8]) -> bool {
         return false;
     }
     let last_start = haystack.len() - needle.len();
-    (0..=last_start).any(|start| {
-        haystack[start..start + needle.len()]
-            .iter()
-            .zip(needle)
-            .all(|(h, n)| h.to_ascii_lowercase() == *n)
-    })
+    (0..=last_start).any(|start| matches_at(haystack, needle, start))
+}
+
+fn matches_at(haystack: &[u8], needle: &[u8], start: usize) -> bool {
+    haystack[start..start + needle.len()]
+        .iter()
+        .zip(needle)
+        .all(|(h, n)| h.to_ascii_lowercase() == *n)
+}
+
+fn substring_ranges(haystack: &[u8], needle: &[u8], out: &mut Vec<Range<usize>>) {
+    if needle.is_empty() || needle.len() > haystack.len() {
+        return;
+    }
+    let last_start = haystack.len() - needle.len();
+    let mut start = 0;
+    while start <= last_start {
+        if matches_at(haystack, needle, start) {
+            out.push(start..start + needle.len());
+            start += needle.len();
+        } else {
+            start += 1;
+        }
+    }
 }
 
 /// `regex::Error` prints a multi-line diagram; squash it onto one line so it fits
@@ -171,6 +206,33 @@ mod tests {
     #[test]
     fn bad_regex_is_reported() {
         assert!(Matcher::regex("a(b").is_err());
+    }
+
+    #[test]
+    fn substring_ranges_are_case_insensitive_and_non_overlapping() {
+        let mut ranges = Vec::new();
+        Matcher::substring("ab").find_ranges(b"xABab", &mut ranges);
+        assert_eq!(ranges, [1..3, 3..5]);
+
+        // The empty needle matches everything, so there is nothing to show.
+        let mut ranges = Vec::new();
+        Matcher::substring("").find_ranges(b"abc", &mut ranges);
+        assert!(ranges.is_empty());
+    }
+
+    #[test]
+    fn regex_ranges_skip_zero_width_matches() {
+        let mut ranges = Vec::new();
+        Matcher::regex(r"[0-9]+")
+            .unwrap()
+            .find_ranges(b"a12b345", &mut ranges);
+        assert_eq!(ranges, [1..3, 4..7]);
+
+        let mut ranges = Vec::new();
+        Matcher::regex(r"\d*")
+            .unwrap()
+            .find_ranges(b"abc", &mut ranges);
+        assert!(ranges.is_empty());
     }
 
     #[test]
